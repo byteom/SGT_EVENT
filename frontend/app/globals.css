@@ -1,0 +1,178 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&family=Manrope:wght@600;700;800;900&display=swap');
+
+/* Import Tailwind */
+@import "tailwindcss";
+
+/* =========================
+   GLOBAL THEME VARIABLES
+========================= */
+:root {
+  --background: #F7FAFC;              /* soft background */
+  --foreground: #374151;              /* gray-700 - dark readable text */
+  --primary: #2B6CB0;                 /* blue */
+  --primary-dark: #1F5A9A;            /* darker blue */
+  --accent: #ECC94B;                  /* gold */
+  --card-background: #FFFFFF;         /* white card */
+  --light-gray-border: #E2E8F0;       /* soft border */
+  --shadow-soft: 0 10px 30px rgba(43, 108, 176, 0.12);
+}
+
+.dark {
+  --background: #0d1220;
+  --foreground: #374151;
+  --card-background: #1a1f2b;
+  --light-gray-border: #2d3748;
+}
+
+/* Apply root variables */
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Default text color for all elements */
+*, *::before, *::after {
+  color: inherit;
+}
+
+/* =========================
+     UTILITY CLASSES
+========================= */
+
+/* text + bg + border utilities using CSS vars */
+.text-dark-text { color: #374151; }  /* gray-700 */
+.bg-soft-background { background: var(--background); }
+.bg-dark-background { background: #1a1f2b; }
+.bg-card-background { background: var(--card-background); }
+.bg-card-dark { background: var(--card-background); }
+.border-light-gray-border { border-color: var(--light-gray-border); }
+.text-primary { color: var(--primary); }
+.bg-primary { background: var(--primary); }
+.bg-primary-dark { background: var(--primary-dark); }
+
+/* shadow */
+.shadow-soft { box-shadow: var(--shadow-soft); }
+
+/* material icons */
+.material-symbols-outlined {
+  font-family: "Material Symbols Outlined";
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  display: inline-block;
+  white-space: nowrap;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* =========================
+     SCANNER PAGE CSS
+========================= */
+
+.scan-frame-corner {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  border-style: solid;
+  border-color: #ffffff;
+}
+
+@media (min-width: 640px) {
+  .scan-frame-corner {
+    width: 48px;
+    height: 48px;
+  }
+}
+
+/* laser scan animation */
+@keyframes scanLaser {
+  0% { top: 0%; }
+  50% { top: calc(100% - 4px); }
+  100% { top: 0%; }
+}
+
+.animate-scan-line {
+  animation: scanLaser 3s ease-in-out infinite;
+}
+
+/* =========================
+     SUCCESS PAGE ANIMATIONS
+========================= */
+
+/* Scale animation for active state */
+.active-scale-98:active {
+  transform: scale(0.98);
+}
+
+/* Fade in animation */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.4s ease-out;
+}
+
+/* Success pulse animation */
+@keyframes successPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 0.9;
+  }
+}
+
+.animate-success-pulse {
+  animation: successPulse 0.6s ease-in-out;
+}
+
+/* Overlay fade in */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.2s ease-out;
+}
+
+/* Scale in animation */
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-scaleIn {
+  animation: scaleIn 0.3s ease-out;
+}
+
+/* Success pulse for overlay icon */
+.animate-successPulse {
+  animation: successPulse 0.6s ease-in-out;
+}
+
+
+
+

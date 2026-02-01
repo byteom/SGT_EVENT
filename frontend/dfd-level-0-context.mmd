@@ -1,0 +1,28 @@
+graph TB
+    subgraph External["EXTERNAL ENTITIES"]
+        Student["👤 Student"]
+        Volunteer["🙋 Volunteer"]
+        EventManager["📋 Event Manager"]
+        Admin["👨‍💼 Admin"]
+    end
+
+    System["🎯 SGT EVENT<br/>MANAGEMENT<br/>SYSTEM<br/>(Level 0)"]
+
+    Student -->|Login Credentials<br/>Event Registration<br/>Feedback<br/>Stall Rankings| System
+    System -->|QR Code<br/>Event Details<br/>Visit History<br/>Ranking Status| Student
+
+    Volunteer -->|Login Credentials<br/>Scan QR Code| System
+    System -->|Student Info<br/>Scan History<br/>Check-in/out Status| Volunteer
+
+    EventManager -->|Login Credentials<br/>Event Data<br/>Stall Info| System
+    System -->|Event Statistics<br/>Reports| EventManager
+
+    Admin -->|Login Credentials<br/>User Management<br/>System Config| System
+    System -->|Analytics<br/>Reports<br/>Statistics| Admin
+
+    style System fill:#2B6CB0,stroke:#1E3A8A,stroke-width:3px,color:#fff
+    style Student fill:#10B981,stroke:#059669,stroke-width:2px,color:#fff
+    style Volunteer fill:#F59E0B,stroke:#D97706,stroke-width:2px,color:#fff
+    style EventManager fill:#8B5CF6,stroke:#7C3AED,stroke-width:2px,color:#fff
+    style Admin fill:#EF4444,stroke:#DC2626,stroke-width:2px,color:#fff
+    style External fill:#F3F4F6,stroke:#E5E7EB,stroke-width:2px

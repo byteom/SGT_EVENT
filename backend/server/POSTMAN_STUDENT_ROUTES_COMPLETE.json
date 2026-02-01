@@ -1,0 +1,1056 @@
+{
+  "info": {
+    "name": "SGTU Event - Student API Complete",
+    "description": "Complete Postman collection for all student routes with authentication, event registration, feedback, and ranking",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:5000",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "registration_no",
+      "value": "2024SGTU10001",
+      "type": "string"
+    },
+    {
+      "key": "password",
+      "value": "20050315110001",
+      "type": "string"
+    },
+    {
+      "key": "event_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "stall_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Authentication",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    if (response.data && response.data.token) {",
+                  "        pm.collectionVariables.set('token', response.data.token);",
+                  "        pm.environment.set('student_token', response.data.token);",
+                  "        console.log('✅ Token saved:', response.data.token.substring(0, 50) + '...');",
+                  "    }",
+                  "}",
+                  "",
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response has token', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.data.token).to.exist;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"registration_no\": \"{{registration_no}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/student/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "student",
+                "login"
+              ]
+            },
+            "description": "Student login with registration number and password (DOB + Pincode)"
+          },
+          "response": []
+        },
+        {
+          "name": "Verify Reset Credentials",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"registration_no\": \"{{registration_no}}\",\n  \"date_of_birth\": \"2005-03-15\",\n  \"pincode\": \"110001\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/student/verify-reset-credentials",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "student",
+                "verify-reset-credentials"
+              ]
+            },
+            "description": "Step 1: Verify credentials (DOB + Pincode) to get reset token"
+          },
+          "response": []
+        },
+        {
+          "name": "Reset Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reset_token\": \"RESET_TOKEN_FROM_VERIFY_STEP\",\n  \"new_password\": \"NewPassword123\",\n  \"confirm_password\": \"NewPassword123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/student/reset-password",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "student",
+                "reset-password"
+              ]
+            },
+            "description": "Step 2: Reset password using reset token"
+          },
+          "response": []
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/student/logout",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "student",
+                "logout"
+              ]
+            },
+            "description": "Logout student (clears cookie)"
+          },
+          "response": []
+        }
+      ],
+      "description": "Authentication endpoints for student login, password reset, and logout"
+    },
+    {
+      "name": "2. Profile Management",
+      "item": [
+        {
+          "name": "Get Profile",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/student/profile",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "student",
+                "profile"
+              ]
+            },
+            "description": "Get student profile information"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Profile",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"newemail@example.com\",\n  \"password\": \"NewPassword123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/student/profile",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "student",
+                "profile"
+              ]
+            },
+            "description": "Update student email and/or password"
+          },
+          "response": []
+        },
+        {
+          "name": "Get QR Code",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/student/qr-code",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "student",
+                "qr-code"
+              ]
+            },
+            "description": "Get universal rotating QR code for all events"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Check-In History",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/student/check-in-history",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "student",
+                "check-in-history"
+              ]
+            },
+            "description": "Get student's check-in/check-out history"
+          },
+          "response": []
+        }
+      ],
+      "description": "Profile management endpoints"
+    },
+    {
+      "name": "3. Event Discovery & Registration",
+      "item": [
+        {
+          "name": "Get Available Events",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    if (response.data && response.data.data && response.data.data.length > 0) {",
+                  "        pm.collectionVariables.set('event_id', response.data.data[0].id);",
+                  "        console.log('✅ Event ID saved:', response.data.data[0].id);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/student/events?page=1&limit=10",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "student",
+                "events"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "event_type",
+                  "value": "FREE",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "tech",
+                  "disabled": true
+                },
+                {
+                  "key": "exclude_registered",
+                  "value": "true",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get list of available events with filters"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Event Details",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/student/events/{{event_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "student",
+                "events",
+                "{{event_id}}"
+              ]
+            },
+            "description": "Get details of a specific event"
+          },
+          "response": []
+        },
+        {
+          "name": "Register for Free Event",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/student/events/{{event_id}}/register",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "student",
+                "events",
+                "{{event_id}}",
+                "register"
+              ]
+            },
+            "description": "Register for a free event"
+          },
+          "response": []
+        },
+        {
+          "name": "Initiate Payment for Paid Event",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    if (response.data && response.data.order) {",
+                  "        pm.collectionVariables.set('razorpay_order_id', response.data.order.order_id);",
+                  "        pm.collectionVariables.set('registration_id', response.data.registration_id);",
+                  "        console.log('✅ Order ID saved:', response.data.order.order_id);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/student/events/{{event_id}}/payment/initiate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "student",
+                "events",
+                "{{event_id}}",
+                "payment",
+                "initiate"
+              ]
+            },
+            "description": "Initiate Razorpay payment for paid event"
+          },
+          "response": []
+        },
+        {
+          "name": "Verify Payment",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"razorpay_order_id\": \"order_XXXXX\",\n  \"razorpay_payment_id\": \"pay_XXXXX\",\n  \"razorpay_signature\": \"signature_XXXXX\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/student/events/{{event_id}}/payment/verify",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "student",
+                "events",
+                "{{event_id}}",
+                "payment",
+                "verify"
+              ]
+            },
+            "description": "Verify Razorpay payment signature"
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Registered Events",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/student/my-events",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "student",
+                "my-events"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "CONFIRMED",
+                  "disabled": true
+                },
+                {
+                  "key": "payment_status",
+                  "value": "COMPLETED",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get list of student's registered events"
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel Event Registration",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/student/events/{{event_id}}/deregister",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "student",
+                "events",
+                "{{event_id}}",
+                "deregister"
+              ]
+            },
+            "description": "Cancel event registration with refund (if applicable)"
+          },
+          "response": []
+        }
+      ],
+      "description": "Event discovery and registration endpoints"
+    },
+    {
+      "name": "4. Stall Feedback (Legacy - Global)",
+      "item": [
+        {
+          "name": "Scan Stall",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    if (response.data && response.data.stall) {",
+                  "        pm.collectionVariables.set('stall_id', response.data.stall.id);",
+                  "        console.log('✅ Stall ID saved:', response.data.stall.id);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"stall_qr_token\": \"STALL_QR_TOKEN_HERE\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/student/scan-stall",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "student",
+                "scan-stall"
+              ]
+            },
+            "description": "Scan stall QR code (requires check-in)"
+          },
+          "response": []
+        },
+        {
+          "name": "Submit Feedback",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"stall_id\": \"{{stall_id}}\",\n  \"rating\": 5,\n  \"comment\": \"Excellent stall! Very informative and engaging.\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/student/submit-feedback",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "student",
+                "submit-feedback"
+              ]
+            },
+            "description": "Submit feedback for a stall (rating 1-5)"
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Visits",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/student/my-visits",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "student",
+                "my-visits"
+              ]
+            },
+            "description": "Get all stall visits and feedbacks"
+          },
+          "response": []
+        }
+      ],
+      "description": "Legacy stall feedback endpoints (global, not event-scoped)"
+    },
+    {
+      "name": "5. Event-Scoped Feedback (NEW)",
+      "item": [
+        {
+          "name": "Submit Event Feedback",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"stall_id\": \"{{stall_id}}\",\n  \"rating\": 5,\n  \"comment\": \"Great stall! Very informative.\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/student/events/{{event_id}}/submit-feedback",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "student",
+                "events",
+                "{{event_id}}",
+                "submit-feedback"
+              ]
+            },
+            "description": "Submit feedback for specific event (requires registration + check-in)"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Event Visits",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/student/events/{{event_id}}/my-visits",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "student",
+                "events",
+                "{{event_id}}",
+                "my-visits"
+              ]
+            },
+            "description": "Get feedbacks for specific event"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Event Stats",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/student/events/{{event_id}}/stats",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "student",
+                "events",
+                "{{event_id}}",
+                "stats"
+              ]
+            },
+            "description": "Get statistics for specific event (feedbacks, rankings, check-ins)"
+          },
+          "response": []
+        }
+      ],
+      "description": "Event-scoped feedback endpoints with middleware validation"
+    },
+    {
+      "name": "6. School Rankings (Legacy - Global)",
+      "item": [
+        {
+          "name": "Get My School Stalls",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/student/my-school-stalls",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "student",
+                "my-school-stalls"
+              ]
+            },
+            "description": "Get school stalls where student gave feedback (for ranking)"
+          },
+          "response": []
+        },
+        {
+          "name": "Submit School Ranking",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rankings\": [\n    {\n      \"stall_id\": \"STALL_ID_1\",\n      \"rank\": 1\n    },\n    {\n      \"stall_id\": \"STALL_ID_2\",\n      \"rank\": 2\n    },\n    {\n      \"stall_id\": \"STALL_ID_3\",\n      \"rank\": 3\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/student/submit-school-ranking",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "student",
+                "submit-school-ranking"
+              ]
+            },
+            "description": "Submit top 3 school stall rankings (ONE-TIME per event)"
+          },
+          "response": []
+        },
+        {
+          "name": "Get My School Ranking",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/student/my-submitted-rank",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "student",
+                "my-submitted-rank"
+              ]
+            },
+            "description": "View submitted school rankings (read-only)"
+          },
+          "response": []
+        }
+      ],
+      "description": "Legacy school ranking endpoints (global, not event-scoped)"
+    },
+    {
+      "name": "7. Event-Scoped Rankings (NEW)",
+      "item": [
+        {
+          "name": "Submit Event School Ranking",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rankings\": [\n    {\n      \"stall_id\": \"STALL_ID_1\",\n      \"rank\": 1\n    },\n    {\n      \"stall_id\": \"STALL_ID_2\",\n      \"rank\": 2\n    },\n    {\n      \"stall_id\": \"STALL_ID_3\",\n      \"rank\": 3\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/student/events/{{event_id}}/submit-school-ranking",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "student",
+                "events",
+                "{{event_id}}",
+                "submit-school-ranking"
+              ]
+            },
+            "description": "Submit school ranking for specific event (requires registration + check-in)"
+          },
+          "response": []
+        }
+      ],
+      "description": "Event-scoped ranking endpoints with per-event completion tracking"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Auto-inject token from collection variable",
+          "const token = pm.collectionVariables.get('token');",
+          "if (token) {",
+          "    pm.request.headers.add({",
+          "        key: 'Authorization',",
+          "        value: `Bearer ${token}`",
+          "    });",
+          "}"
+        ]
+      }
+    }
+  ]
+}

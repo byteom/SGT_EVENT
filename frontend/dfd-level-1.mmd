@@ -1,0 +1,92 @@
+graph TB
+    subgraph Entities["EXTERNAL ENTITIES"]
+        Student["👤 Student"]
+        Volunteer["🙋 Volunteer"]
+        EventManager["📋 Event Manager"]
+        Admin["👨‍💼 Admin"]
+    end
+
+    subgraph Processes["MAIN PROCESSES"]
+        P1["1.0<br/>🔐<br/>Authentication<br/>System"]
+        P2["2.0<br/>📅<br/>Event<br/>Management"]
+        P3["3.0<br/>📱<br/>QR Code &<br/>Check-in/out<br/>System"]
+        P4["4.0<br/>💬<br/>Feedback<br/>System"]
+        P5["5.0<br/>⭐<br/>Ranking<br/>System"]
+        P6["6.0<br/>📊<br/>Reports &<br/>Analytics"]
+    end
+
+    subgraph DataStores["DATA STORES"]
+        D1[("D1<br/>👥<br/>Users DB<br/>(Students, Volunteers,<br/>Managers, Admins)")]
+        D2[("D2<br/>🎪<br/>Events &<br/>Stalls DB")]
+        D3[("D3<br/>✅<br/>Check-in/<br/>Check-out<br/>Records")]
+        D4[("D4<br/>📝<br/>Feedback<br/>Records")]
+        D5[("D5<br/>🏆<br/>Ranking<br/>Records")]
+    end
+
+    %% Authentication flows
+    Student -->|Login Request| P1
+    Volunteer -->|Login Request| P1
+    EventManager -->|Login Request| P1
+    Admin -->|Login Request| P1
+    P1 -->|Auth Token| Student
+    P1 -->|Auth Token| Volunteer
+    P1 -->|Auth Token| EventManager
+    P1 -->|Auth Token| Admin
+    P1 <-->|Verify Credentials| D1
+
+    %% Event Management flows
+    EventManager -->|Create/Edit Event| P2
+    Student -->|View Events| P2
+    P2 <-->|Store/Retrieve| D2
+    P2 -->|Event Details| Student
+    P2 -->|Event Stats| EventManager
+
+    %% Check-in/out flows
+    Student -->|Show QR Code| P3
+    Volunteer -->|Scan QR| P3
+    P3 <-->|Verify Student| D1
+    P3 <-->|Record Visit| D3
+    P3 -->|Visit Confirmation| Student
+    P3 -->|Scan History| Volunteer
+
+    %% Feedback flows
+    Student -->|Submit Feedback| P4
+    P4 <-->|Store Feedback| D4
+    P4 <-->|Check Visits| D3
+    P4 -->|Feedback Status| Student
+
+    %% Ranking flows
+    Student -->|Submit Rankings| P5
+    P5 <-->|Store Rankings| D5
+    P5 <-->|Check Eligibility| D3
+    P5 <-->|Check Feedback| D4
+    P5 -->|Ranking Status| Student
+
+    %% Reports flows
+    Admin -->|Request Reports| P6
+    EventManager -->|Request Analytics| P6
+    P6 <-->|Read Stats| D1
+    P6 <-->|Read Events| D2
+    P6 <-->|Read Visits| D3
+    P6 <-->|Read Feedback| D4
+    P6 <-->|Read Rankings| D5
+    P6 -->|Analytics| Admin
+    P6 -->|Reports| EventManager
+
+    style P1 fill:#3B82F6,stroke:#1E40AF,stroke-width:2px,color:#fff
+    style P2 fill:#10B981,stroke:#059669,stroke-width:2px,color:#fff
+    style P3 fill:#F59E0B,stroke:#D97706,stroke-width:2px,color:#fff
+    style P4 fill:#8B5CF6,stroke:#7C3AED,stroke-width:2px,color:#fff
+    style P5 fill:#EC4899,stroke:#DB2777,stroke-width:2px,color:#fff
+    style P6 fill:#EF4444,stroke:#DC2626,stroke-width:2px,color:#fff
+
+    style D1 fill:#DBEAFE,stroke:#3B82F6,stroke-width:2px
+    style D2 fill:#D1FAE5,stroke:#10B981,stroke-width:2px
+    style D3 fill:#FEF3C7,stroke:#F59E0B,stroke-width:2px
+    style D4 fill:#E9D5FF,stroke:#8B5CF6,stroke-width:2px
+    style D5 fill:#FCE7F3,stroke:#EC4899,stroke-width:2px
+
+    style Student fill:#10B981,stroke:#059669,stroke-width:2px,color:#fff
+    style Volunteer fill:#F59E0B,stroke:#D97706,stroke-width:2px,color:#fff
+    style EventManager fill:#8B5CF6,stroke:#7C3AED,stroke-width:2px,color:#fff
+    style Admin fill:#EF4444,stroke:#DC2626,stroke-width:2px,color:#fff

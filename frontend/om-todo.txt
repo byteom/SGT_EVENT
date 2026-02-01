@@ -1,0 +1,43 @@
+Admin Portal Development — Basic to Advanced Enhancements
+
+Implemented a secure and fully functional login system.
+
+Resolved the issue where users could access all pages without authentication; ensured proper redirects based on login status.
+
+Fixed the logout issue on the student page.
+
+Resolved multiple console errors to improve overall stability.
+
+Fixed a hydration mismatch problem caused by layout.jsx accessing localStorage during server-side rendering.
+
+Corrected routing behavior so that unauthenticated users are always redirected to the login page, preventing unauthorized access.
+
+
+
+Create /student/feedback page - main feedback page with stall scanning
+Create /student/ranking page - school stall ranking page
+Fix /student/stall-scan page - update QR scanning to use correct backend format (stall_qr_token)
+Fix /student/feedback-rate page - use correct API endpoints and rating scale (1-5 instead of 1-10)
+Update profile page - add profile update functionality
+Fix dashboard - ensure buttons work correctly
+Verify all API integrations match backend routes
+
+
+
+Volunteer Portal Development — Basic to Advanced Enhancements
+
+Fix scanner page - backend returns 'action: ENTRY/EXIT' not 'status: IN/OUT'
+Fix success page - handleLogout missing closing brace and type check should match backend
+Fix dashboard history - backend returns 'scan_type: CHECKIN/CHECKOUT' not 'type: in/out'
+Fix dashboard history - backend returns 'scanned_at' not 'time'
+Verify scanner response data structure matches backend
+
+
+All frontend pages now match these backend endpoints:
+POST /volunteer/login — Working
+POST /volunteer/register — Working
+POST /volunteer/logout — Working
+GET /volunteer/profile — Working
+POST /volunteer/scan/student — Fixed to match response structure
+POST /volunteer/scan/stall — Available (not used in frontend yet)
+GET /volunteer/history — Fixed to match response structure
