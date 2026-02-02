@@ -21,6 +21,7 @@ export default function EventDetailPage() {
   const [registrations, setRegistrations] = useState([]);
   const [stalls, setStalls] = useState([]);
   const [analytics, setAnalytics] = useState(null);
+  const [attendance, setAttendance] = useState(null);
   const [activeTab, setActiveTab] = useState("overview");
   const [loading, setLoading] = useState(true);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -67,14 +68,16 @@ export default function EventDetailPage() {
       const canShowAnalytics = ['APPROVED', 'ACTIVE', 'COMPLETED'].includes(eventData.status);
       
       // Fetch remaining data in parallel
-      const [volunteersRes, registrationsRes, stallsRes, analyticsRes] = await Promise.all([
+      const [volunteersRes, registrationsRes, stallsRes, analyticsRes, attendanceRes] = await Promise.all([
         api.get(`/event-manager/events/${eventId}/volunteers/list`).catch(() => ({ data: { success: false, data: { volunteers: [] } } })),
         api.get(`/event-manager/events/${eventId}/registrations`).catch(() => ({ data: { success: false, data: { data: [] } } })),
         api.get(`/event-manager/events/${eventId}/stalls/list`).catch(() => ({ data: { success: false, data: { stalls: [] } } })),
         // Only fetch analytics for approved/active/completed events
         canShowAnalytics 
           ? api.get(`/event-manager/events/${eventId}/analytics`).catch(() => ({ data: { success: false, data: null } }))
-          : Promise.resolve({ data: { success: false, data: null } })
+          : Promise.resolve({ data: { success: false, data: null } }),
+        // Fetch attendance data
+        api.get(`/event-manager/events/${eventId}/attendance`).catch(() => ({ data: { success: false, data: null } }))
       ]);
 
       if (volunteersRes.data?.success) {
@@ -107,6 +110,12 @@ export default function EventDetailPage() {
         setAnalytics(analyticsRes.data.data);
       } else {
         setAnalytics(null);
+      }
+
+      if (attendanceRes.data?.success) {
+        setAttendance(attendanceRes.data.data);
+      } else {
+        setAttendance(null);
       }
     } catch (error) {
       console.error("Error fetching event details:", error);
@@ -268,6 +277,7 @@ export default function EventDetailPage() {
                 <TabButton label="Overview" icon="info" active={activeTab === "overview"} onClick={() => setActiveTab("overview")} />
                 <TabButton label="Volunteers" icon="groups" count={volunteers.length} active={activeTab === "volunteers"} onClick={() => setActiveTab("volunteers")} />
                 <TabButton label="Registrations" icon="how_to_reg" count={registrations.length} active={activeTab === "registrations"} onClick={() => setActiveTab("registrations")} />
+                <TabButton label="Attendance" icon="assignment_turned_in" count={attendance?.summary?.total_registered} active={activeTab === "attendance"} onClick={() => setActiveTab("attendance")} />
                 <TabButton label="Stalls" icon="store" count={stalls.length} active={activeTab === "stalls"} onClick={() => setActiveTab("stalls")} />
                 <TabButton label="Analytics" icon="analytics" active={activeTab === "analytics"} onClick={() => setActiveTab("analytics")} />
               </div>
@@ -284,6 +294,10 @@ export default function EventDetailPage() {
 
             {activeTab === "registrations" && (
               <RegistrationsTab registrations={registrations} />
+            )}
+
+            {activeTab === "attendance" && (
+              <AttendanceTab eventId={eventId} initialData={attendance} />
             )}
 
             {activeTab === "stalls" && (
@@ -1251,6 +1265,555 @@ function AnalyticsTab({ analytics, stats, event, registrations }) {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function AttendanceTab({ eventId, initialData }) {
+  const [attendanceData, setAttendanceData] = useState(initialData?.attendance_data || []);
+  const [summary, setSummary] = useState(initialData?.summary || {});
+  const [schoolBreakdown, setSchoolBreakdown] = useState(initialData?.school_breakdown || []);
+  const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  
+  // Filter states
+  const [statusFilter, setStatusFilter] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [schoolFilter, setSchoolFilter] = useState("");
+  const [feedbackFilter, setFeedbackFilter] = useState("");
+  const [sortBy, setSortBy] = useState("check_in_time");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pagination, setPagination] = useState(initialData?.pagination || {});
+  
+  // Detail modal
+  const [selectedStudent, setSelectedStudent] = useState(null);
+  const [studentDetail, setStudentDetail] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  useEffect(() => {
+    if (initialData) {
+      setAttendanceData(initialData.attendance_data || []);
+      setSummary(initialData.summary || {});
+      setSchoolBreakdown(initialData.school_breakdown || []);
+      setPagination(initialData.pagination || {});
+    }
+  }, [initialData]);
+
+  const fetchAttendance = async () => {
+    try {
+      setLoading(true);
+      const params = new URLSearchParams();
+      if (statusFilter) params.append("status", statusFilter);
+      if (searchQuery) params.append("search", searchQuery);
+      if (schoolFilter) params.append("school_id", schoolFilter);
+      if (feedbackFilter) params.append("has_feedback", feedbackFilter);
+      if (sortBy) params.append("sort_by", sortBy);
+      params.append("page", currentPage);
+      params.append("limit", 50);
+
+      const response = await api.get(`/event-manager/events/${eventId}/attendance?${params.toString()}`);
+      if (response.data?.success) {
+        setAttendanceData(response.data.data.attendance_data || []);
+        setSummary(response.data.data.summary || {});
+        setSchoolBreakdown(response.data.data.school_breakdown || []);
+        setPagination(response.data.data.pagination || {});
+      }
+    } catch (error) {
+      console.error("Error fetching attendance:", error);
+      alert(error.response?.data?.message || "Failed to load attendance data");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleExport = async () => {
+    try {
+      setExporting(true);
+      const params = new URLSearchParams();
+      if (statusFilter) params.append("status", statusFilter);
+      if (searchQuery) params.append("search", searchQuery);
+      if (schoolFilter) params.append("school_id", schoolFilter);
+      if (feedbackFilter) params.append("has_feedback", feedbackFilter);
+
+      const response = await api.get(`/event-manager/events/${eventId}/attendance/export?${params.toString()}`, {
+        responseType: 'blob'
+      });
+
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `attendance-${eventId}-${Date.now()}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (error) {
+      console.error("Error exporting attendance:", error);
+      alert("Failed to export attendance data");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleViewDetail = async (studentId) => {
+    try {
+      setDetailLoading(true);
+      setSelectedStudent(studentId);
+      const response = await api.get(`/event-manager/events/${eventId}/attendance/${studentId}`);
+      if (response.data?.success) {
+        setStudentDetail(response.data.data);
+      }
+    } catch (error) {
+      console.error("Error fetching student detail:", error);
+      alert("Failed to load student attendance details");
+      setSelectedStudent(null);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const handleApplyFilters = () => {
+    setCurrentPage(1);
+    fetchAttendance();
+  };
+
+  const handleClearFilters = () => {
+    setStatusFilter("");
+    setSearchQuery("");
+    setSchoolFilter("");
+    setFeedbackFilter("");
+    setSortBy("check_in_time");
+    setCurrentPage(1);
+    fetchAttendance();
+  };
+
+  const formatTime = (dateString) => {
+    if (!dateString) return "N/A";
+    return new Date(dateString).toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+  };
+
+  const getStatusBadge = (status) => {
+    switch (status) {
+      case "checked_in":
+        return <span className="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-700 font-medium">Currently Checked In</span>;
+      case "checked_out":
+        return <span className="px-2 py-1 text-xs rounded-full bg-green-100 text-green-700 font-medium">Checked Out</span>;
+      case "not_attended":
+        return <span className="px-2 py-1 text-xs rounded-full bg-red-100 text-red-700 font-medium">Not Attended</span>;
+      default:
+        return <span className="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-700 font-medium">Unknown</span>;
+    }
+  };
+
+  const schools = [...new Set(schoolBreakdown.map(s => ({ id: s.school_id, name: s.school_name })))];
+
+  return (
+    <div className="space-y-6">
+      {/* Summary Stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+        <StatCard title="Total Registered" value={summary.total_registered || 0} icon="how_to_reg" />
+        <StatCard title="Total Attended" value={summary.total_attended || 0} icon="check_circle" positive />
+        <StatCard title="Currently Checked In" value={summary.currently_checked_in || 0} icon="login" />
+        <StatCard title="Checked Out" value={summary.total_checked_out || 0} icon="logout" />
+        <StatCard title="Not Attended" value={summary.not_attended || 0} icon="cancel" />
+        <StatCard 
+          title="Attendance Rate" 
+          value={`${summary.attendance_rate || 0}%`} 
+          icon="analytics" 
+          positive={summary.attendance_rate >= 70}
+        />
+      </div>
+
+      {/* Filters */}
+      <div className="bg-card-background p-6 rounded-xl border border-light-gray-border shadow-soft">
+        <h3 className="text-base font-semibold text-dark-text mb-4">Filters</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Status Filter */}
+          <div>
+            <label className="text-sm text-gray-700 mb-1 block">Status</label>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+            >
+              <option value="">All Status</option>
+              <option value="checked_in">Currently Checked In</option>
+              <option value="checked_out">Checked Out</option>
+              <option value="not_attended">Not Attended</option>
+            </select>
+          </div>
+
+          {/* Search */}
+          <div>
+            <label className="text-sm text-gray-700 mb-1 block">Search</label>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Name, Email, Phone, Reg No"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+            />
+          </div>
+
+          {/* School Filter */}
+          <div>
+            <label className="text-sm text-gray-700 mb-1 block">School</label>
+            <select
+              value={schoolFilter}
+              onChange={(e) => setSchoolFilter(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+            >
+              <option value="">All Schools</option>
+              {schools.map((school) => (
+                <option key={school.id} value={school.id}>
+                  {school.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Feedback Filter */}
+          <div>
+            <label className="text-sm text-gray-700 mb-1 block">Feedback</label>
+            <select
+              value={feedbackFilter}
+              onChange={(e) => setFeedbackFilter(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+            >
+              <option value="">All</option>
+              <option value="true">Has Feedback</option>
+              <option value="false">No Feedback</option>
+            </select>
+          </div>
+
+          {/* Sort By */}
+          <div>
+            <label className="text-sm text-gray-700 mb-1 block">Sort By</label>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+            >
+              <option value="check_in_time">Check-in Time</option>
+              <option value="feedback_count">Feedback Count</option>
+              <option value="name">Name</option>
+            </select>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex items-end gap-2 lg:col-span-3">
+            <button
+              onClick={handleApplyFilters}
+              disabled={loading}
+              className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition font-medium disabled:opacity-50 flex items-center gap-2"
+            >
+              <span className="material-symbols-outlined text-lg">filter_alt</span>
+              <span>Apply Filters</span>
+            </button>
+            <button
+              onClick={handleClearFilters}
+              disabled={loading}
+              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition font-medium disabled:opacity-50"
+            >
+              Clear
+            </button>
+            <button
+              onClick={handleExport}
+              disabled={exporting}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium disabled:opacity-50 flex items-center gap-2 ml-auto"
+            >
+              <span className="material-symbols-outlined text-lg">download</span>
+              <span>{exporting ? "Exporting..." : "Export Excel"}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* School Breakdown */}
+      {schoolBreakdown.length > 0 && (
+        <div className="bg-card-background p-6 rounded-xl border border-light-gray-border shadow-soft">
+          <h3 className="text-base font-semibold text-dark-text mb-4">School-wise Breakdown</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {schoolBreakdown.map((school) => (
+              <div key={school.school_id} className="p-4 bg-gray-50 rounded-lg">
+                <p className="text-sm font-medium text-dark-text mb-2">{school.school_name}</p>
+                <div className="flex justify-between text-xs text-gray-700">
+                  <span>Registered: {school.total_registered}</span>
+                  <span>Attended: {school.total_attended}</span>
+                </div>
+                <div className="mt-2">
+                  <div className="flex justify-between text-xs mb-1">
+                    <span>Attendance Rate</span>
+                    <span className="font-medium">{school.attendance_rate}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div
+                      className="bg-primary h-2 rounded-full"
+                      style={{ width: `${school.attendance_rate}%` }}
+                    ></div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Attendance Table */}
+      <div className="bg-card-background rounded-xl border border-light-gray-border shadow-soft overflow-hidden">
+        <div className="p-6 border-b border-gray-200">
+          <h3 className="text-base font-semibold text-dark-text">
+            Attendance Records ({pagination.total || 0})
+          </h3>
+        </div>
+
+        {loading ? (
+          <div className="p-8 text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+            <p className="text-gray-700 mt-2">Loading attendance data...</p>
+          </div>
+        ) : attendanceData.length === 0 ? (
+          <div className="p-8 text-center text-gray-700">
+            <span className="material-symbols-outlined text-4xl text-gray-400 mb-2">person_off</span>
+            <p>No attendance records found</p>
+          </div>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Student</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Reg No</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">School</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Check-in</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Check-out</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Total Visits</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Feedbacks</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Status</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {attendanceData.map((record) => (
+                    <tr key={record.student_id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div>
+                          <p className="text-sm font-medium text-dark-text">{record.student_name}</p>
+                          <p className="text-xs text-gray-700">{record.email}</p>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                        {record.registration_no || "N/A"}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                        {record.school_name || "N/A"}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                        {formatTime(record.first_check_in)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                        {formatTime(record.last_check_out)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 text-center">
+                        {record.total_check_ins || 0}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 text-center">
+                        {record.total_feedbacks || 0}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {getStatusBadge(record.attendance_status)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <button
+                          onClick={() => handleViewDetail(record.student_id)}
+                          className="text-primary hover:text-primary-dark font-medium text-sm flex items-center gap-1"
+                        >
+                          <span className="material-symbols-outlined text-sm">visibility</span>
+                          <span>View Details</span>
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination */}
+            {pagination.total_pages > 1 && (
+              <div className="p-4 border-t border-gray-200 flex items-center justify-between">
+                <div className="text-sm text-gray-700">
+                  Showing {((pagination.current_page - 1) * pagination.limit) + 1} to{" "}
+                  {Math.min(pagination.current_page * pagination.limit, pagination.total)} of{" "}
+                  {pagination.total} results
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setCurrentPage(prev => Math.max(1, prev - 1));
+                      setTimeout(fetchAttendance, 100);
+                    }}
+                    disabled={pagination.current_page === 1}
+                    className="px-3 py-1 border border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                  >
+                    Previous
+                  </button>
+                  <span className="px-3 py-1 text-sm text-gray-700">
+                    Page {pagination.current_page} of {pagination.total_pages}
+                  </span>
+                  <button
+                    onClick={() => {
+                      setCurrentPage(prev => Math.min(pagination.total_pages, prev + 1));
+                      setTimeout(fetchAttendance, 100);
+                    }}
+                    disabled={pagination.current_page === pagination.total_pages}
+                    className="px-3 py-1 border border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Student Detail Modal */}
+      {selectedStudent && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b border-gray-200 p-6 flex justify-between items-center">
+              <h3 className="text-lg font-semibold text-dark-text">Student Attendance Details</h3>
+              <button
+                onClick={() => {
+                  setSelectedStudent(null);
+                  setStudentDetail(null);
+                }}
+                className="text-gray-700 hover:text-gray-700"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            {detailLoading ? (
+              <div className="p-8 text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+                <p className="text-gray-700 mt-2">Loading details...</p>
+              </div>
+            ) : studentDetail ? (
+              <div className="p-6 space-y-6">
+                {/* Student Info */}
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <h4 className="font-semibold text-dark-text mb-3">Student Information</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <DetailRow label="Name" value={studentDetail.student?.student_name} />
+                    <DetailRow label="Registration No" value={studentDetail.student?.registration_no} />
+                    <DetailRow label="Email" value={studentDetail.student?.email} />
+                    <DetailRow label="Phone" value={studentDetail.student?.phone} />
+                    <DetailRow label="School" value={studentDetail.student?.school_name} />
+                    <DetailRow label="Payment Status" value={studentDetail.student?.payment_status} />
+                  </div>
+                </div>
+
+                {/* Attendance Summary */}
+                <div className="bg-blue-50 p-4 rounded-lg">
+                  <h4 className="font-semibold text-dark-text mb-3">Attendance Summary</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div>
+                      <p className="text-sm text-gray-700">Total Check-ins</p>
+                      <p className="text-2xl font-bold text-primary">{studentDetail.attendance_summary?.total_check_ins || 0}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-700">Total Duration</p>
+                      <p className="text-2xl font-bold text-primary">
+                        {Math.round((studentDetail.attendance_summary?.total_duration_minutes || 0))} min
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-700">Avg Duration</p>
+                      <p className="text-2xl font-bold text-primary">
+                        {Math.round((studentDetail.attendance_summary?.average_duration_minutes || 0))} min
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-700">Currently</p>
+                      <p className="text-lg font-bold text-primary">
+                        {studentDetail.attendance_summary?.currently_checked_in ? "Checked In" : "Checked Out"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Check-in/out History */}
+                <div>
+                  <h4 className="font-semibold text-dark-text mb-3">Check-in/out History</h4>
+                  {studentDetail.check_in_out_history?.length > 0 ? (
+                    <div className="space-y-2">
+                      {studentDetail.check_in_out_history.map((history, idx) => (
+                        <div key={idx} className="border border-gray-200 rounded-lg p-3">
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+                            <div>
+                              <span className="text-gray-700">Type: </span>
+                              <span className={`font-medium ${history.action_type === 'CHECKIN' ? 'text-green-600' : 'text-red-600'}`}>
+                                {history.action_type}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-gray-700">Time: </span>
+                              <span className="font-medium">{formatTime(history.created_at)}</span>
+                            </div>
+                            <div>
+                              <span className="text-gray-700">Volunteer: </span>
+                              <span className="font-medium">{history.volunteer_name || "N/A"}</span>
+                            </div>
+                            <div>
+                              <span className="text-gray-700">Duration: </span>
+                              <span className="font-medium">
+                                {history.duration_minutes ? `${Math.round(history.duration_minutes)} min` : "In Progress"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-gray-700 text-center py-4">No check-in/out history</p>
+                  )}
+                </div>
+
+                {/* Feedback History */}
+                <div>
+                  <h4 className="font-semibold text-dark-text mb-3">Feedback History</h4>
+                  {studentDetail.feedback_history?.length > 0 ? (
+                    <div className="space-y-2">
+                      {studentDetail.feedback_history.map((feedback, idx) => (
+                        <div key={idx} className="border border-gray-200 rounded-lg p-3">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <p className="font-medium text-dark-text">{feedback.stall_name}</p>
+                              <p className="text-sm text-gray-700">{feedback.feedback_text || "No comment"}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-lg font-bold text-primary">⭐ {feedback.rating || "N/A"}</p>
+                              <p className="text-xs text-gray-700">{formatTime(feedback.created_at)}</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-gray-700 text-center py-4">No feedback given</p>
+                  )}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -2086,6 +2086,577 @@ class EventManagerController {
       return errorResponse(res, error.message, 500);
     }
   }
+
+  /**
+   * Get event attendance data with comprehensive filters
+   * GET /api/event-manager/events/:eventId/attendance
+   * Query params: ?status=checked_in|checked_out|not_attended&search=&page=1&limit=50
+   * Returns: Detailed attendance records with check-in/check-out times, feedback stats
+   */
+  static async getEventAttendance(req, res) {
+    try {
+      const { eventId } = req.params;
+      const { 
+        status,           // checked_in, checked_out, not_attended
+        search,           // search by name, reg no, email
+        school_id,        // filter by school
+        has_feedback,     // filter by feedback given (true/false)
+        sort_by = 'check_in_time', // check_in_time, feedback_count, name
+        sort_order = 'DESC',
+        page = 1, 
+        limit = 50 
+      } = req.query;
+
+      const managerId = req.user.id;
+
+      // Verify event ownership
+      const event = await EventModel.findById(eventId);
+      if (!event) {
+        return errorResponse(res, 'Event not found', 404);
+      }
+
+      if (event.created_by_manager_id !== managerId) {
+        return errorResponse(res, 'Unauthorized access to this event', 403);
+      }
+
+      const offset = (parseInt(page) - 1) * parseInt(limit);
+
+      // Build WHERE conditions
+      let whereConditions = ['er.event_id = $1'];
+      let queryParams = [eventId];
+      let paramIndex = 2;
+
+      // Status filter
+      if (status === 'checked_in') {
+        // Students who checked in but haven't checked out (or checked out but checked in again)
+        whereConditions.push(`EXISTS (
+          SELECT 1 FROM check_in_outs cio_in 
+          WHERE cio_in.student_id = s.id 
+            AND cio_in.event_id = er.event_id 
+            AND cio_in.scan_type = 'CHECKIN'
+            AND NOT EXISTS (
+              SELECT 1 FROM check_in_outs cio_out
+              WHERE cio_out.student_id = s.id
+                AND cio_out.event_id = er.event_id
+                AND cio_out.scan_type = 'CHECKOUT'
+                AND cio_out.scanned_at > cio_in.scanned_at
+            )
+        )`);
+      } else if (status === 'checked_out') {
+        // Students who have checked out
+        whereConditions.push(`EXISTS (
+          SELECT 1 FROM check_in_outs cio 
+          WHERE cio.student_id = s.id 
+            AND cio.event_id = er.event_id 
+            AND cio.scan_type = 'CHECKOUT'
+        )`);
+      } else if (status === 'not_attended') {
+        // Registered but never checked in
+        whereConditions.push(`NOT EXISTS (
+          SELECT 1 FROM check_in_outs cio 
+          WHERE cio.student_id = s.id 
+            AND cio.event_id = er.event_id 
+            AND cio.scan_type = 'CHECKIN'
+        )`);
+      }
+
+      // Search filter
+      if (search && search.trim()) {
+        whereConditions.push(`(
+          LOWER(s.full_name) LIKE LOWER($${paramIndex})
+          OR LOWER(s.email) LIKE LOWER($${paramIndex})
+          OR LOWER(s.registration_no) LIKE LOWER($${paramIndex})
+          OR s.phone LIKE $${paramIndex}
+        )`);
+        queryParams.push(`%${search.trim()}%`);
+        paramIndex++;
+      }
+
+      // School filter
+      if (school_id) {
+        whereConditions.push(`s.school_id = $${paramIndex}`);
+        queryParams.push(school_id);
+        paramIndex++;
+      }
+
+      // Feedback filter
+      if (has_feedback === 'true') {
+        whereConditions.push(`EXISTS (
+          SELECT 1 FROM feedbacks f 
+          JOIN stalls st ON f.stall_id = st.id
+          WHERE f.student_id = s.id AND st.event_id = er.event_id
+        )`);
+      } else if (has_feedback === 'false') {
+        whereConditions.push(`NOT EXISTS (
+          SELECT 1 FROM feedbacks f 
+          JOIN stalls st ON f.stall_id = st.id
+          WHERE f.student_id = s.id AND st.event_id = er.event_id
+        )`);
+      }
+
+      // Build sort clause
+      let sortClause = 'er.registered_at DESC';
+      if (sort_by === 'check_in_time') {
+        sortClause = `first_check_in ${sort_order}, s.full_name ASC`;
+      } else if (sort_by === 'feedback_count') {
+        sortClause = `feedback_count ${sort_order}, s.full_name ASC`;
+      } else if (sort_by === 'name') {
+        sortClause = `s.full_name ${sort_order}`;
+      }
+
+      // Main query with attendance details
+      const attendanceQuery = `
+        SELECT 
+          s.id as student_id,
+          s.full_name as student_name,
+          s.registration_no,
+          s.email,
+          s.phone,
+          sc.school_name,
+          er.registered_at,
+          er.payment_status,
+          er.payment_amount,
+          
+          -- First check-in time
+          (SELECT MIN(cio.scanned_at) 
+           FROM check_in_outs cio 
+           WHERE cio.student_id = s.id 
+             AND cio.event_id = er.event_id 
+             AND cio.scan_type = 'CHECKIN'
+          ) as first_check_in,
+          
+          -- Last check-in time
+          (SELECT MAX(cio.scanned_at) 
+           FROM check_in_outs cio 
+           WHERE cio.student_id = s.id 
+             AND cio.event_id = er.event_id 
+             AND cio.scan_type = 'CHECKIN'
+          ) as last_check_in,
+          
+          -- Last check-out time
+          (SELECT MAX(cio.scanned_at) 
+           FROM check_in_outs cio 
+           WHERE cio.student_id = s.id 
+             AND cio.event_id = er.event_id 
+             AND cio.scan_type = 'CHECKOUT'
+          ) as last_check_out,
+          
+          -- Total check-in count
+          (SELECT COUNT(*) 
+           FROM check_in_outs cio 
+           WHERE cio.student_id = s.id 
+             AND cio.event_id = er.event_id 
+             AND cio.scan_type = 'CHECKIN'
+          ) as total_check_ins,
+          
+          -- Total check-out count
+          (SELECT COUNT(*) 
+           FROM check_in_outs cio 
+           WHERE cio.student_id = s.id 
+             AND cio.event_id = er.event_id 
+             AND cio.scan_type = 'CHECKOUT'
+          ) as total_check_outs,
+          
+          -- Feedback count for this event
+          (SELECT COUNT(*) 
+           FROM feedbacks f 
+           JOIN stalls st ON f.stall_id = st.id
+           WHERE f.student_id = s.id AND st.event_id = er.event_id
+          ) as feedback_count,
+          
+          -- Currently checked in status
+          (
+            SELECT COUNT(*) > 0
+            FROM check_in_outs cio_in
+            WHERE cio_in.student_id = s.id 
+              AND cio_in.event_id = er.event_id 
+              AND cio_in.scan_type = 'CHECKIN'
+              AND NOT EXISTS (
+                SELECT 1 FROM check_in_outs cio_out
+                WHERE cio_out.student_id = s.id
+                  AND cio_out.event_id = er.event_id
+                  AND cio_out.scan_type = 'CHECKOUT'
+                  AND cio_out.scanned_at > cio_in.scanned_at
+              )
+          ) as currently_checked_in,
+          
+          COUNT(*) OVER() as total_count
+          
+        FROM event_registrations er
+        INNER JOIN students s ON er.student_id = s.id
+        LEFT JOIN schools sc ON s.school_id = sc.id
+        WHERE ${whereConditions.join(' AND ')}
+        ORDER BY ${sortClause}
+        LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+      `;
+
+      queryParams.push(parseInt(limit), offset);
+
+      const attendanceData = await query(attendanceQuery, queryParams);
+
+      // Get summary statistics
+      const statsQuery = `
+        SELECT 
+          COUNT(DISTINCT er.student_id) as total_registered,
+          
+          COUNT(DISTINCT CASE 
+            WHEN EXISTS (
+              SELECT 1 FROM check_in_outs cio 
+              WHERE cio.student_id = s.id 
+                AND cio.event_id = er.event_id 
+                AND cio.scan_type = 'CHECKIN'
+            ) THEN er.student_id 
+          END) as total_attended,
+          
+          COUNT(DISTINCT CASE 
+            WHEN EXISTS (
+              SELECT 1 FROM check_in_outs cio_in 
+              WHERE cio_in.student_id = s.id 
+                AND cio_in.event_id = er.event_id 
+                AND cio_in.scan_type = 'CHECKIN'
+                AND NOT EXISTS (
+                  SELECT 1 FROM check_in_outs cio_out
+                  WHERE cio_out.student_id = s.id
+                    AND cio_out.event_id = er.event_id
+                    AND cio_out.scan_type = 'CHECKOUT'
+                    AND cio_out.scanned_at > cio_in.scanned_at
+                )
+            ) THEN er.student_id 
+          END) as currently_checked_in,
+          
+          COUNT(DISTINCT CASE 
+            WHEN EXISTS (
+              SELECT 1 FROM check_in_outs cio 
+              WHERE cio.student_id = s.id 
+                AND cio.event_id = er.event_id 
+                AND cio.scan_type = 'CHECKOUT'
+            ) THEN er.student_id 
+          END) as total_checked_out,
+          
+          COUNT(DISTINCT CASE 
+            WHEN NOT EXISTS (
+              SELECT 1 FROM check_in_outs cio 
+              WHERE cio.student_id = s.id 
+                AND cio.event_id = er.event_id 
+                AND cio.scan_type = 'CHECKIN'
+            ) THEN er.student_id 
+          END) as not_attended
+          
+        FROM event_registrations er
+        INNER JOIN students s ON er.student_id = s.id
+        WHERE er.event_id = $1
+      `;
+
+      const statsResult = await query(statsQuery, [eventId]);
+      const stats = {
+        total_registered: parseInt(statsResult[0]?.total_registered || 0),
+        total_attended: parseInt(statsResult[0]?.total_attended || 0),
+        currently_checked_in: parseInt(statsResult[0]?.currently_checked_in || 0),
+        total_checked_out: parseInt(statsResult[0]?.total_checked_out || 0),
+        not_attended: parseInt(statsResult[0]?.not_attended || 0),
+        attendance_rate: 0
+      };
+
+      if (stats.total_registered > 0) {
+        stats.attendance_rate = parseFloat(
+          ((stats.total_attended / stats.total_registered) * 100).toFixed(2)
+        );
+      }
+
+      // Get school-wise breakdown
+      const schoolStatsQuery = `
+        SELECT 
+          sc.id as school_id,
+          sc.school_name,
+          COUNT(DISTINCT er.student_id) as registered,
+          COUNT(DISTINCT CASE 
+            WHEN EXISTS (
+              SELECT 1 FROM check_in_outs cio 
+              WHERE cio.student_id = s.id 
+                AND cio.event_id = er.event_id 
+                AND cio.scan_type = 'CHECKIN'
+            ) THEN er.student_id 
+          END) as attended
+        FROM event_registrations er
+        INNER JOIN students s ON er.student_id = s.id
+        INNER JOIN schools sc ON s.school_id = sc.id
+        WHERE er.event_id = $1
+        GROUP BY sc.id, sc.school_name
+        ORDER BY attended DESC, registered DESC
+      `;
+
+      const schoolStats = await query(schoolStatsQuery, [eventId]);
+
+      return successResponse(res, {
+        attendance_data: attendanceData,
+        summary: stats,
+        school_breakdown: schoolStats.map(school => ({
+          school_id: school.school_id,
+          school_name: school.school_name,
+          registered: parseInt(school.registered || 0),
+          attended: parseInt(school.attended || 0),
+          attendance_rate: school.registered > 0 
+            ? parseFloat(((school.attended / school.registered) * 100).toFixed(2))
+            : 0
+        })),
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total: attendanceData[0]?.total_count || 0,
+          totalPages: Math.ceil((attendanceData[0]?.total_count || 0) / parseInt(limit))
+        },
+        filters_applied: {
+          status: status || 'all',
+          search: search || null,
+          school_id: school_id || null,
+          has_feedback: has_feedback || null
+        }
+      });
+    } catch (error) {
+      console.error('Get event attendance error:', error);
+      return errorResponse(res, error.message, 500);
+    }
+  }
+
+  /**
+   * Get detailed check-in/check-out history for a specific student
+   * GET /api/event-manager/events/:eventId/attendance/:studentId
+   * Returns: Complete timeline of check-ins, check-outs, and feedback
+   */
+  static async getStudentAttendanceDetail(req, res) {
+    try {
+      const { eventId, studentId } = req.params;
+      const managerId = req.user.id;
+
+      // Verify event ownership
+      const event = await EventModel.findById(eventId);
+      if (!event) {
+        return errorResponse(res, 'Event not found', 404);
+      }
+
+      if (event.created_by_manager_id !== managerId) {
+        return errorResponse(res, 'Unauthorized access', 403);
+      }
+
+      // Get student details
+      const studentQuery = `
+        SELECT 
+          s.*,
+          sc.school_name,
+          er.registered_at,
+          er.payment_status,
+          er.payment_amount
+        FROM students s
+        LEFT JOIN schools sc ON s.school_id = sc.id
+        LEFT JOIN event_registrations er ON s.id = er.student_id AND er.event_id = $1
+        WHERE s.id = $2
+      `;
+      const studentResult = await query(studentQuery, [eventId, studentId]);
+
+      if (studentResult.length === 0) {
+        return errorResponse(res, 'Student not found', 404);
+      }
+
+      const student = studentResult[0];
+
+      // Get all check-in/check-out records
+      const checkInOutQuery = `
+        SELECT 
+          cio.id,
+          cio.scan_type,
+          cio.scanned_at,
+          cio.scan_number,
+          v.full_name as volunteer_name,
+          v.email as volunteer_email
+        FROM check_in_outs cio
+        LEFT JOIN volunteers v ON cio.volunteer_id = v.id
+        WHERE cio.student_id = $1 AND cio.event_id = $2
+        ORDER BY cio.scanned_at ASC
+      `;
+      const checkInOutRecords = await query(checkInOutQuery, [studentId, eventId]);
+
+      // Get all feedback given
+      const feedbackQuery = `
+        SELECT 
+          f.id,
+          f.rating,
+          f.comment,
+          f.submitted_at,
+          st.stall_name,
+          st.stall_number,
+          sc.school_name as stall_school
+        FROM feedbacks f
+        INNER JOIN stalls st ON f.stall_id = st.id
+        LEFT JOIN schools sc ON st.school_id = sc.id
+        WHERE f.student_id = $1 AND st.event_id = $2
+        ORDER BY f.submitted_at ASC
+      `;
+      const feedbackRecords = await query(feedbackQuery, [studentId, eventId]);
+
+      // Calculate duration statistics
+      const durations = [];
+      let currentCheckIn = null;
+
+      for (const record of checkInOutRecords) {
+        if (record.scan_type === 'CHECKIN') {
+          currentCheckIn = new Date(record.scanned_at);
+        } else if (record.scan_type === 'CHECKOUT' && currentCheckIn) {
+          const checkOut = new Date(record.scanned_at);
+          const durationMs = checkOut - currentCheckIn;
+          const durationMinutes = Math.floor(durationMs / (1000 * 60));
+          durations.push(durationMinutes);
+          currentCheckIn = null;
+        }
+      }
+
+      const totalDuration = durations.reduce((sum, d) => sum + d, 0);
+      const avgDuration = durations.length > 0 
+        ? Math.floor(totalDuration / durations.length) 
+        : 0;
+
+      return successResponse(res, {
+        student: {
+          id: student.id,
+          full_name: student.full_name,
+          registration_no: student.registration_no,
+          email: student.email,
+          phone: student.phone,
+          school_name: student.school_name,
+          registered_at: student.registered_at,
+          payment_status: student.payment_status,
+          payment_amount: student.payment_amount
+        },
+        attendance_summary: {
+          total_check_ins: checkInOutRecords.filter(r => r.scan_type === 'CHECKIN').length,
+          total_check_outs: checkInOutRecords.filter(r => r.scan_type === 'CHECKOUT').length,
+          total_feedbacks: feedbackRecords.length,
+          total_duration_minutes: totalDuration,
+          average_visit_duration_minutes: avgDuration,
+          currently_checked_in: checkInOutRecords.length > 0 && 
+            checkInOutRecords[checkInOutRecords.length - 1].scan_type === 'CHECKIN'
+        },
+        check_in_out_history: checkInOutRecords,
+        feedback_history: feedbackRecords
+      });
+    } catch (error) {
+      console.error('Get student attendance detail error:', error);
+      return errorResponse(res, error.message, 500);
+    }
+  }
+
+  /**
+   * Export attendance data to Excel
+   * GET /api/event-manager/events/:eventId/attendance/export
+   * Returns: Excel file with complete attendance data
+   */
+  static async exportAttendance(req, res) {
+    try {
+      const { eventId } = req.params;
+      const managerId = req.user.id;
+
+      // Verify event ownership
+      const event = await EventModel.findById(eventId);
+      if (!event) {
+        return errorResponse(res, 'Event not found', 404);
+      }
+
+      if (event.created_by_manager_id !== managerId) {
+        return errorResponse(res, 'Unauthorized access', 403);
+      }
+
+      // Get all attendance data
+      const attendanceQuery = `
+        SELECT 
+          s.registration_no,
+          s.full_name,
+          s.email,
+          s.phone,
+          sc.school_name,
+          er.registered_at,
+          er.payment_status,
+          (SELECT MIN(cio.scanned_at) FROM check_in_outs cio 
+           WHERE cio.student_id = s.id AND cio.event_id = $1 AND cio.scan_type = 'CHECKIN') as first_check_in,
+          (SELECT MAX(cio.scanned_at) FROM check_in_outs cio 
+           WHERE cio.student_id = s.id AND cio.event_id = $1 AND cio.scan_type = 'CHECKOUT') as last_check_out,
+          (SELECT COUNT(*) FROM check_in_outs cio 
+           WHERE cio.student_id = s.id AND cio.event_id = $1 AND cio.scan_type = 'CHECKIN') as total_check_ins,
+          (SELECT COUNT(*) FROM feedbacks f JOIN stalls st ON f.stall_id = st.id
+           WHERE f.student_id = s.id AND st.event_id = $1) as feedback_count,
+          CASE 
+            WHEN EXISTS (SELECT 1 FROM check_in_outs cio WHERE cio.student_id = s.id AND cio.event_id = $1 AND cio.scan_type = 'CHECKIN')
+            THEN 'ATTENDED'
+            ELSE 'NOT ATTENDED'
+          END as attendance_status
+        FROM event_registrations er
+        INNER JOIN students s ON er.student_id = s.id
+        LEFT JOIN schools sc ON s.school_id = sc.id
+        WHERE er.event_id = $1
+        ORDER BY s.full_name ASC
+      `;
+
+      const attendanceData = await query(attendanceQuery, [eventId]);
+
+      // Create Excel workbook
+      const ExcelJS = await import('exceljs');
+      const workbook = new ExcelJS.default.Workbook();
+      const worksheet = workbook.addWorksheet('Attendance');
+
+      // Add headers
+      worksheet.columns = [
+        { header: 'Registration No', key: 'registration_no', width: 15 },
+        { header: 'Full Name', key: 'full_name', width: 25 },
+        { header: 'Email', key: 'email', width: 30 },
+        { header: 'Phone', key: 'phone', width: 15 },
+        { header: 'School', key: 'school_name', width: 30 },
+        { header: 'Registered At', key: 'registered_at', width: 20 },
+        { header: 'Payment Status', key: 'payment_status', width: 15 },
+        { header: 'First Check-In', key: 'first_check_in', width: 20 },
+        { header: 'Last Check-Out', key: 'last_check_out', width: 20 },
+        { header: 'Total Check-Ins', key: 'total_check_ins', width: 15 },
+        { header: 'Feedbacks Given', key: 'feedback_count', width: 15 },
+        { header: 'Status', key: 'attendance_status', width: 15 }
+      ];
+
+      // Style header row
+      worksheet.getRow(1).font = { bold: true };
+      worksheet.getRow(1).fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FF4472C4' }
+      };
+      worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+
+      // Add data rows
+      attendanceData.forEach(record => {
+        worksheet.addRow({
+          registration_no: record.registration_no,
+          full_name: record.full_name,
+          email: record.email,
+          phone: record.phone,
+          school_name: record.school_name || 'N/A',
+          registered_at: record.registered_at ? new Date(record.registered_at).toLocaleString() : 'N/A',
+          payment_status: record.payment_status,
+          first_check_in: record.first_check_in ? new Date(record.first_check_in).toLocaleString() : 'N/A',
+          last_check_out: record.last_check_out ? new Date(record.last_check_out).toLocaleString() : 'N/A',
+          total_check_ins: record.total_check_ins || 0,
+          feedback_count: record.feedback_count || 0,
+          attendance_status: record.attendance_status
+        });
+      });
+
+      // Generate buffer
+      const buffer = await workbook.xlsx.writeBuffer();
+
+      // Set response headers
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename=attendance-${event.event_code}-${Date.now()}.xlsx`);
+      
+      return res.send(buffer);
+    } catch (error) {
+      console.error('Export attendance error:', error);
+      return errorResponse(res, error.message, 500);
+    }
+  }
 }
 
 export default EventManagerController;
