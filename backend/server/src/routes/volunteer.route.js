@@ -89,6 +89,13 @@ router.delete('/:id', authorizeRoles('ADMIN', 'EVENT_MANAGER'), volunteerControl
 router.post('/:id/reset-to-default', authorizeRoles('ADMIN', 'EVENT_MANAGER'), volunteerController.resetToDefaultPassword);
 
 /**
+ * @route   POST /api/volunteer/:id/change-password
+ * @desc    Change volunteer password to custom value
+ * @access  Private (ADMIN, EVENT_MANAGER)
+ */
+router.post('/:id/change-password', authorizeRoles('ADMIN', 'EVENT_MANAGER'), volunteerController.changeVolunteerPassword);
+
+/**
  * @note    UNIVERSAL SCANNER: /scan/student handles ALL scenarios
  *          - Original check-in/check-out (legacy single event)
  *          - Multi-event scenarios (automatically validates registration)

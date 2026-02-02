@@ -934,6 +934,38 @@ const resetToDefaultPassword = async (req, res, next) => {
   }
 };
 
+/**
+ * Admin/Manager change volunteer password to custom value
+ * @route POST /api/volunteer/:id/change-password
+ */
+const changeVolunteerPassword = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { new_password } = req.body;
+
+    if (!new_password) {
+      return errorResponse(res, 'New password is required', 400);
+    }
+
+    if (new_password.length < 6) {
+      return errorResponse(res, 'Password must be at least 6 characters', 400);
+    }
+
+    // Check if volunteer exists
+    const volunteer = await Volunteer.findById(id, query);
+    if (!volunteer) {
+      return errorResponse(res, 'Volunteer not found', 404);
+    }
+
+    // Update password (clears password_reset_required flag)
+    await Volunteer.changePassword(id, new_password, query);
+
+    return successResponse(res, null, 'Volunteer password changed successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
 export default {
   login,
   register,
@@ -953,5 +985,6 @@ export default {
   // Password management
   verifyIdentity,           // Verify identity with event_code + phone
   resetPassword,            // Reset password after verification
-  resetToDefaultPassword    // Admin resets to default password
+  resetToDefaultPassword,   // Admin resets to default password
+  changeVolunteerPassword   // Admin changes volunteer password to custom value
 };

@@ -416,13 +416,22 @@ function OverviewTab({ event, stats, registrations, volunteers, stalls }) {
 
 function VolunteersTab({ volunteers, eventId, onUpdate }) {
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [selectedVolunteer, setSelectedVolunteer] = useState(null);
   const [volunteerForm, setVolunteerForm] = useState({
     full_name: "",
     email: "",
     phone: "",
     assigned_location: ""
   });
+  const [passwordForm, setPasswordForm] = useState({
+    new_password: "",
+    confirm_password: ""
+  });
   const [adding, setAdding] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
 
   const handleDownloadExcel = () => {
     if (volunteers.length === 0) {
@@ -521,6 +530,95 @@ function VolunteersTab({ volunteers, eventId, onUpdate }) {
     }
   };
 
+  const handleEditVolunteer = (volunteer) => {
+    setSelectedVolunteer(volunteer);
+    setVolunteerForm({
+      full_name: volunteer.full_name || volunteer.volunteer_name || "",
+      email: volunteer.volunteer_email || volunteer.email || "",
+      phone: volunteer.volunteer_phone || volunteer.phone || "",
+      assigned_location: volunteer.assigned_location || ""
+    });
+    setShowEditModal(true);
+  };
+
+  const handleUpdateVolunteer = async () => {
+    if (!volunteerForm.full_name || !volunteerForm.email) {
+      alert("Please enter volunteer name and email");
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(volunteerForm.email)) {
+      alert("Please enter a valid email address");
+      return;
+    }
+
+    try {
+      setUpdating(true);
+      const response = await api.put(`/event-manager/events/${eventId}/volunteers/${selectedVolunteer.volunteer_id || selectedVolunteer.id}/update`, {
+        full_name: volunteerForm.full_name.trim(),
+        email: volunteerForm.email.trim().toLowerCase(),
+        phone: volunteerForm.phone.trim() || undefined,
+        assigned_location: volunteerForm.assigned_location.trim() || undefined
+      });
+
+      if (response.data?.success) {
+        alert("Volunteer updated successfully");
+        setShowEditModal(false);
+        setSelectedVolunteer(null);
+        setVolunteerForm({ full_name: "", email: "", phone: "", assigned_location: "" });
+        onUpdate();
+      }
+    } catch (error) {
+      console.error("Error updating volunteer:", error);
+      alert(error.response?.data?.message || "Failed to update volunteer");
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const handleOpenPasswordModal = (volunteer) => {
+    setSelectedVolunteer(volunteer);
+    setPasswordForm({ new_password: "", confirm_password: "" });
+    setShowPasswordModal(true);
+  };
+
+  const handleChangePassword = async () => {
+    if (!passwordForm.new_password || !passwordForm.confirm_password) {
+      alert("Please enter and confirm the new password");
+      return;
+    }
+
+    if (passwordForm.new_password !== passwordForm.confirm_password) {
+      alert("Passwords do not match");
+      return;
+    }
+
+    if (passwordForm.new_password.length < 6) {
+      alert("Password must be at least 6 characters");
+      return;
+    }
+
+    try {
+      setChangingPassword(true);
+      const response = await api.post(`/volunteer/${selectedVolunteer.volunteer_id || selectedVolunteer.id}/change-password`, {
+        new_password: passwordForm.new_password
+      });
+
+      if (response.data?.success) {
+        alert("Password changed successfully");
+        setShowPasswordModal(false);
+        setSelectedVolunteer(null);
+        setPasswordForm({ new_password: "", confirm_password: "" });
+      }
+    } catch (error) {
+      console.error("Error changing password:", error);
+      alert(error.response?.data?.message || "Failed to change password");
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
   return (
     <div>
       <div className="mb-4 flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
@@ -584,13 +682,29 @@ function VolunteersTab({ volunteers, eventId, onUpdate }) {
                       </div>
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
-                      <button
-                        onClick={() => handleRemoveVolunteer(vol.volunteer_id)}
-                        className="text-red-600 hover:text-red-700 p-2 rounded hover:bg-red-50 transition"
-                        title="Remove volunteer"
-                      >
-                        <span className="material-symbols-outlined text-lg">delete</span>
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleEditVolunteer(vol)}
+                          className="text-blue-600 hover:text-blue-700 p-2 rounded hover:bg-blue-50 transition"
+                          title="Edit volunteer"
+                        >
+                          <span className="material-symbols-outlined text-lg">edit</span>
+                        </button>
+                        <button
+                          onClick={() => handleOpenPasswordModal(vol)}
+                          className="text-green-600 hover:text-green-700 p-2 rounded hover:bg-green-50 transition"
+                          title="Change password"
+                        >
+                          <span className="material-symbols-outlined text-lg">key</span>
+                        </button>
+                        <button
+                          onClick={() => handleRemoveVolunteer(vol.volunteer_id)}
+                          className="text-red-600 hover:text-red-700 p-2 rounded hover:bg-red-50 transition"
+                          title="Remove volunteer"
+                        >
+                          <span className="material-symbols-outlined text-lg">delete</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -691,12 +805,159 @@ function VolunteersTab({ volunteers, eventId, onUpdate }) {
           </div>
         </div>
       )}
+
+      {/* Edit Volunteer Modal */}
+      {showEditModal && selectedVolunteer && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-card-background p-6 rounded-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold text-dark-text mb-4">Edit Volunteer</h3>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Full Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={volunteerForm.full_name}
+                  onChange={(e) => setVolunteerForm({ ...volunteerForm, full_name: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-600"
+                  placeholder="e.g., John Doe"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Email <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="email"
+                  value={volunteerForm.email}
+                  onChange={(e) => setVolunteerForm({ ...volunteerForm, email: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-600"
+                  placeholder="e.g., john@example.com"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Phone Number
+                </label>
+                <input
+                  type="tel"
+                  value={volunteerForm.phone}
+                  onChange={(e) => setVolunteerForm({ ...volunteerForm, phone: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-600"
+                  placeholder="e.g., 9876543210"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Assigned Location
+                </label>
+                <input
+                  type="text"
+                  value={volunteerForm.assigned_location}
+                  onChange={(e) => setVolunteerForm({ ...volunteerForm, assigned_location: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-600"
+                  placeholder="e.g., Main Gate, Registration Desk"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={handleUpdateVolunteer}
+                disabled={updating}
+                className="flex-1 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition disabled:opacity-50"
+              >
+                {updating ? "Updating..." : "Update Volunteer"}
+              </button>
+              <button
+                onClick={() => {
+                  setShowEditModal(false);
+                  setSelectedVolunteer(null);
+                  setVolunteerForm({ full_name: "", email: "", phone: "", assigned_location: "" });
+                }}
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Change Password Modal */}
+      {showPasswordModal && selectedVolunteer && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-card-background p-6 rounded-xl max-w-md w-full">
+            <h3 className="text-lg font-semibold text-dark-text mb-4">Change Volunteer Password</h3>
+            
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-sm text-blue-800">
+                Changing password for: <span className="font-medium">{selectedVolunteer.full_name || selectedVolunteer.volunteer_name}</span>
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  New Password <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="password"
+                  value={passwordForm.new_password}
+                  onChange={(e) => setPasswordForm({ ...passwordForm, new_password: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-600"
+                  placeholder="Enter new password (min 6 characters)"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Confirm Password <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="password"
+                  value={passwordForm.confirm_password}
+                  onChange={(e) => setPasswordForm({ ...passwordForm, confirm_password: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-600"
+                  placeholder="Confirm new password"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={handleChangePassword}
+                disabled={changingPassword}
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50"
+              >
+                {changingPassword ? "Changing..." : "Change Password"}
+              </button>
+              <button
+                onClick={() => {
+                  setShowPasswordModal(false);
+                  setSelectedVolunteer(null);
+                  setPasswordForm({ new_password: "", confirm_password: "" });
+                }}
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 function StallsTab({ stalls, eventId, onUpdate }) {
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showQRModal, setShowQRModal] = useState(false);
+  const [selectedStall, setSelectedStall] = useState(null);
+  const [qrCodeImage, setQRCodeImage] = useState(null);
+  const [loadingQR, setLoadingQR] = useState(false);
   const [schools, setSchools] = useState([]);
   const [formData, setFormData] = useState({
     stall_name: "",
@@ -707,13 +968,14 @@ function StallsTab({ stalls, eventId, onUpdate }) {
     school_id: "",
   });
   const [adding, setAdding] = useState(false);
+  const [updating, setUpdating] = useState(false);
 
   // Fetch schools when modal opens
   useEffect(() => {
-    if (showAddModal) {
+    if (showAddModal || showEditModal) {
       fetchSchools();
     }
-  }, [showAddModal]);
+  }, [showAddModal, showEditModal]);
 
   const fetchSchools = async () => {
     try {
@@ -809,6 +1071,99 @@ function StallsTab({ stalls, eventId, onUpdate }) {
     XLSX.writeFile(workbook, `event_${eventId}_stalls.xlsx`);
   };
 
+  const handleEditStall = (stall) => {
+    setSelectedStall(stall);
+    setFormData({
+      stall_name: stall.stall_name || "",
+      stall_code: stall.stall_number || stall.stall_code || "",
+      location: stall.location || "",
+      description: stall.description || "",
+      points: stall.points_awarded?.toString() || "",
+      school_id: stall.school_id || ""
+    });
+    setShowEditModal(true);
+  };
+
+  const handleUpdateStall = async () => {
+    if (!formData.stall_name || !formData.stall_code) {
+      alert("Stall name and code are required");
+      return;
+    }
+
+    if (!formData.school_id) {
+      alert("Please select a school/department");
+      return;
+    }
+
+    try {
+      setUpdating(true);
+      const payload = {
+        stall_name: formData.stall_name,
+        stall_number: formData.stall_code.toUpperCase(),
+        location: formData.location || null,
+        description: formData.description || null,
+        school_id: formData.school_id,
+        points_awarded: formData.points ? parseInt(formData.points) : 0,
+      };
+
+      const response = await api.put(`/event-manager/events/${eventId}/stalls/${selectedStall.id}/update`, payload);
+      
+      if (response.data?.success) {
+        alert("Stall updated successfully!");
+        setShowEditModal(false);
+        setSelectedStall(null);
+        setFormData({
+          stall_name: "",
+          stall_code: "",
+          location: "",
+          description: "",
+          points: "",
+          school_id: "",
+        });
+        onUpdate();
+      }
+    } catch (error) {
+      console.error("Error updating stall:", error);
+      alert(error.response?.data?.message || "Failed to update stall");
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const handleViewQRCode = async (stall) => {
+    setSelectedStall(stall);
+    setShowQRModal(true);
+    setLoadingQR(true);
+    
+    try {
+      const response = await api.get(`/stall/${stall.id}/qr-code`);
+      if (response.data?.success) {
+        setQRCodeImage(response.data.data.qr_code);
+      }
+    } catch (error) {
+      console.error("Error fetching QR code:", error);
+      alert("Failed to load QR code");
+    } finally {
+      setLoadingQR(false);
+    }
+  };
+
+  const handleDownloadQR = () => {
+    if (!qrCodeImage || !selectedStall) return;
+    
+    try {
+      const link = document.createElement('a');
+      link.href = qrCodeImage;
+      link.download = `Stall-QR-${selectedStall.stall_number || selectedStall.stall_code || selectedStall.id}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (error) {
+      console.error("Error downloading QR code:", error);
+      alert("Failed to download QR code");
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
@@ -845,6 +1200,7 @@ function StallsTab({ stalls, eventId, onUpdate }) {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Points</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Scans</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
@@ -857,7 +1213,7 @@ function StallsTab({ stalls, eventId, onUpdate }) {
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm font-mono text-dark-text">{stall.stall_code}</span>
+                      <span className="text-sm font-mono text-dark-text">{stall.stall_number || stall.stall_code}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className="text-sm text-gray-700">{stall.location || "N/A"}</span>
@@ -874,6 +1230,24 @@ function StallsTab({ stalls, eventId, onUpdate }) {
                       }`}>
                         {stall.is_active ? "Active" : "Inactive"}
                       </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleViewQRCode(stall)}
+                          className="text-purple-600 hover:text-purple-700 p-2 rounded hover:bg-purple-50 transition"
+                          title="View QR Code"
+                        >
+                          <span className="material-symbols-outlined text-lg">qr_code</span>
+                        </button>
+                        <button
+                          onClick={() => handleEditStall(stall)}
+                          className="text-blue-600 hover:text-blue-700 p-2 rounded hover:bg-blue-50 transition"
+                          title="Edit stall"
+                        >
+                          <span className="material-symbols-outlined text-lg">edit</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -999,11 +1373,198 @@ function StallsTab({ stalls, eventId, onUpdate }) {
                     location: "",
                     description: "",
                     points: "",
+                    school_id: "",
                   });
                 }}
                 className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
               >
                 Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Stall Modal */}
+      {showEditModal && selectedStall && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-card-background p-6 rounded-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold text-dark-text mb-4">Edit Stall</h3>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  School/Department <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={formData.school_id}
+                  onChange={(e) => setFormData(prev => ({ ...prev, school_id: e.target.value }))}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-600"
+                >
+                  <option value="">Select School/Department</option>
+                  {schools.map(school => (
+                    <option key={school.id} value={school.id}>
+                      {school.school_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Stall Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={formData.stall_name}
+                  onChange={(e) => setFormData(prev => ({ ...prev, stall_name: e.target.value }))}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-600"
+                  placeholder="e.g., Registration Desk"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Stall Code <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={formData.stall_code}
+                  onChange={(e) => setFormData(prev => ({ ...prev, stall_code: e.target.value.toUpperCase() }))}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-600 uppercase"
+                  placeholder="e.g., STALL01"
+                  maxLength={20}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Location
+                </label>
+                <input
+                  type="text"
+                  value={formData.location}
+                  onChange={(e) => setFormData(prev => ({ ...prev, location: e.target.value }))}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-600"
+                  placeholder="e.g., Main Hall, Block A"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Description
+                </label>
+                <textarea
+                  value={formData.description}
+                  onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-600"
+                  placeholder="Brief description of the stall"
+                  rows={3}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Points Awarded (per scan)
+                </label>
+                <input
+                  type="number"
+                  value={formData.points}
+                  onChange={(e) => setFormData(prev => ({ ...prev, points: e.target.value }))}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-600"
+                  placeholder="e.g., 10"
+                  min="0"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={handleUpdateStall}
+                disabled={updating}
+                className="flex-1 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition disabled:opacity-50"
+              >
+                {updating ? "Updating..." : "Update Stall"}
+              </button>
+              <button
+                onClick={() => {
+                  setShowEditModal(false);
+                  setSelectedStall(null);
+                  setFormData({
+                    stall_name: "",
+                    stall_code: "",
+                    location: "",
+                    description: "",
+                    points: "",
+                    school_id: "",
+                  });
+                }}
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* QR Code Modal */}
+      {showQRModal && selectedStall && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-card-background p-6 rounded-xl max-w-md w-full">
+            <h3 className="text-lg font-semibold text-dark-text mb-4">Stall QR Code</h3>
+
+            <div className="mb-4 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+              <p className="text-sm text-purple-800">
+                <span className="font-medium">{selectedStall.stall_name}</span>
+              </p>
+              <p className="text-xs text-purple-700 mt-1">
+                Code: {selectedStall.stall_number || selectedStall.stall_code}
+              </p>
+            </div>
+
+            <div className="flex flex-col items-center">
+              {loadingQR ? (
+                <div className="w-64 h-64 flex items-center justify-center bg-gray-50 rounded-lg">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+                </div>
+              ) : qrCodeImage ? (
+                <div className="w-64 h-64 bg-white p-4 rounded-lg border-2 border-gray-200">
+                  <img src={qrCodeImage} alt="Stall QR Code" className="w-full h-full object-contain" />
+                </div>
+              ) : (
+                <div className="w-64 h-64 flex items-center justify-center bg-gray-50 rounded-lg">
+                  <p className="text-gray-500">QR Code not available</p>
+                </div>
+              )}
+
+              <div className="mt-4 text-center">
+                <p className="text-sm text-gray-700 mb-3">
+                  Scan this QR code to provide feedback for this stall
+                </p>
+                
+                {qrCodeImage && (
+                  <button
+                    onClick={handleDownloadQR}
+                    className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-medium flex items-center gap-2 mx-auto"
+                  >
+                    <span className="material-symbols-outlined text-lg">download</span>
+                    Download QR Code
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-center mt-6">
+              <button
+                onClick={() => {
+                  setShowQRModal(false);
+                  setSelectedStall(null);
+                  setQRCodeImage(null);
+                }}
+                className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
+              >
+                Close
               </button>
             </div>
           </div>

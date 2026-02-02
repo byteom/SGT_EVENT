@@ -124,7 +124,9 @@ export default function StudentEventDetailPage() {
                   setRegistering(false);
                   alert("✅ Payment successful! Registration complete.");
                   console.log("🚀 Redirecting to my-events...");
-                  router.push("/student/my-events");
+                  
+                  // Use window.location for reliable redirect in production
+                  window.location.href = "/student/my-events";
                   return;
                 }
               } catch (verifyError) {
@@ -148,7 +150,7 @@ export default function StudentEventDetailPage() {
                       if (eventCheck.data?.success && eventCheck.data.data?.event?.is_registered) {
                         setRegistering(false);
                         alert("✅ Payment successful! Registration complete.");
-                        router.push("/student/my-events");
+                        window.location.href = "/student/my-events";
                         return;
                       }
                       // Wait before next attempt
@@ -164,7 +166,7 @@ export default function StudentEventDetailPage() {
                   // After polling, show success message with instruction
                   setRegistering(false);
                   alert("✅ Payment successful! Please check 'My Events' to confirm your registration.");
-                  router.push("/student/my-events");
+                  window.location.href = "/student/my-events";
                   return;
                 }
 
