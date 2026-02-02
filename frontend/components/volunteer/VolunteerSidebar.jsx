@@ -27,13 +27,6 @@ export default function VolunteerSidebar({ onLogout }) {
       />
 
       <SidebarLink
-        label="Scan"
-        icon="qr_code_scanner"
-        active={pathname === "/volunteer/scanner"}
-        onClick={() => router.push("/volunteer/scanner")}
-      />
-
-      <SidebarLink
         label="Profile"
         icon="person"
         active={pathname === "/volunteer/profile"}

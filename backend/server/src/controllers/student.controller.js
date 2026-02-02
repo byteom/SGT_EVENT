@@ -159,6 +159,72 @@ const getQRCode = async (req, res, next) => {
 };
 
 /**
+ * Get event-specific QR code for a registered event
+ * @route GET /api/student/events/:eventId/qr-code
+ * @description
+ * Generates an event-specific QR code for students to use for check-in/check-out
+ * at that particular event. This replaces the global QR code system.
+ */
+const getEventQRCode = async (req, res, next) => {
+  try {
+    const { eventId } = req.params;
+    
+    // Find student
+    const student = await Student.findById(req.user.id, query);
+    if (!student) {
+      return errorResponse(res, 'Student not found', 404);
+    }
+
+    // Verify student is registered for this event
+    const registration = await EventRegistrationModel.findByEventAndStudent(eventId, student.id);
+    if (!registration) {
+      return errorResponse(res, 'You are not registered for this event', 403);
+    }
+
+    // For paid events, verify payment is completed
+    if (registration.registration_type === 'PAID' && registration.payment_status !== 'COMPLETED') {
+      return errorResponse(res, 'Payment pending for this event', 402);
+    }
+
+    // Get event details
+    const event = await EventModel.findById(eventId);
+    if (!event) {
+      return errorResponse(res, 'Event not found', 404);
+    }
+
+    // Generate rotating token (JWT string ~140 chars) with event context
+    const token = QRCodeService.generateRotatingStudentToken(student);
+    
+    // Generate rotating QR code image (Base64 PNG)
+    const qrCodeImage = await QRCodeService.generateRotatingQRCodeImage(student);
+
+    // Calculate rotation metadata for frontend
+    const rotationInfo = {
+      expires_in_seconds: QRCodeService.getSecondsUntilRotation(),
+      rotation_interval: QRCodeService.ROTATION_INTERVAL_SECONDS,
+      grace_period_seconds: QRCodeService.GRACE_PERIOD_WINDOWS * QRCodeService.ROTATION_INTERVAL_SECONDS
+    };
+
+    return successResponse(res, {
+      qr_code: qrCodeImage,
+      qr_code_token: token,
+      registration_no: student.registration_no,
+      event: {
+        id: event.id,
+        event_name: event.event_name,
+        event_code: event.event_code,
+        venue: event.venue,
+        start_date: event.start_date,
+        end_date: event.end_date
+      },
+      rotation_info: rotationInfo
+    }, 'Event QR code generated successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Get student check-in history
  * @route GET /api/student/check-in-history
  */
@@ -409,53 +475,61 @@ const submitFeedback = async (req, res, next) => {
  */
 const getMyVisits = async (req, res, next) => {
   try {
-    const feedbacks = await Feedback.findByStudent(req.user.id, query);
-    
-    const feedbackCount = feedbacks.length;
+    const studentId = req.user.id;
 
-    // Get current event stats if checked in
-    let currentEventStats = null;
-    const activeCheckInResult = await query(
-      `SELECT event_id FROM check_in_outs 
-       WHERE student_id = $1 AND scan_type = 'CHECKIN' 
-       ORDER BY scanned_at DESC LIMIT 1`,
-      [req.user.id]
-    );
+    // 1) Count distinct events where student was checked in (by volunteer)
+    const checkInQuery = `
+      SELECT DISTINCT event_id 
+      FROM check_in_outs 
+      WHERE student_id = $1 AND scan_type = 'CHECKIN'
+    `;
+    const checkInResults = await query(checkInQuery, [studentId]);
+    const totalEventVisits = checkInResults.length;
 
-    if (activeCheckInResult && activeCheckInResult.length > 0) {
-      const currentEventId = activeCheckInResult[0].event_id;
-      const stallCount = await Stall.countByEvent(currentEventId, query);
-      const eventFeedbackCount = await Feedback.countByStudentAndEvent(req.user.id, currentEventId, query);
-      
-      // Get event details
-      const eventResult = await query(
-        'SELECT id, event_name, event_code FROM events WHERE id = $1',
-        [currentEventId]
-      );
+    // 2) Count total feedbacks given (across all events)
+    const totalFeedbacksQuery = `
+      SELECT COUNT(*) as count 
+      FROM feedbacks 
+      WHERE student_id = $1
+    `;
+    const feedbackResults = await query(totalFeedbacksQuery, [studentId]);
+    const totalFeedbacks = parseInt(feedbackResults[0]?.count) || 0;
 
-      currentEventStats = {
-        event_id: currentEventId,
-        event_name: eventResult[0]?.event_name || null,
-        event_code: eventResult[0]?.event_code || null,
-        total_stalls: stallCount,
-        feedbacks_given: eventFeedbackCount,
-        feedbacks_remaining: stallCount - eventFeedbackCount
-      };
-    }
+    // 3) Get detailed visit information for each event checked into
+    const visitsQuery = `
+      SELECT DISTINCT ON (c.event_id)
+        c.event_id,
+        e.event_name,
+        e.start_date,
+        e.end_date,
+        c.scanned_at as check_in_time,
+        (
+          SELECT COUNT(*) 
+          FROM feedbacks f 
+          WHERE f.student_id = c.student_id 
+            AND f.event_id = c.event_id
+        ) as feedback_count
+      FROM check_in_outs c
+      LEFT JOIN events e ON c.event_id = e.id
+      WHERE c.student_id = $1 AND c.scan_type = 'CHECKIN'
+      ORDER BY c.event_id, c.scanned_at DESC
+    `;
+    const visitsResults = await query(visitsQuery, [studentId]);
+
+    // Build array of event visits
+    const visits = visitsResults.map(visit => ({
+      event_id: visit.event_id,
+      event_name: visit.event_name,
+      check_in_time: visit.check_in_time,
+      start_date: visit.start_date,
+      end_date: visit.end_date,
+      feedback_count: parseInt(visit.feedback_count) || 0
+    }));
 
     return successResponse(res, {
-      total_visits: feedbackCount,
-      current_event_stats: currentEventStats,
-      visits: feedbacks.map(f => ({
-        stall_id: f.stall_id,
-        stall_number: f.stall_number,
-        stall_name: f.stall_name,
-        school_name: f.school_name,
-        rating: f.rating,
-        comment: f.comment,
-        visited_at: f.submitted_at,
-        event_id: f.event_id
-      }))
+      total_event_visits: totalEventVisits, // number of events checked into
+      total_feedbacks: totalFeedbacks, // total feedbacks given across all events
+      visits // list of events visited with check-in time and feedback counts
     });
   } catch (error) {
     next(error);
@@ -1406,56 +1480,6 @@ const cancelEventRegistration = async (req, res, next) => {
       console.error('Cancellation error:', error);
       throw error;
     }
-  } catch (error) {
-    next(error);
-  }
-};
-
-/**
- * Get universal student QR code (works for ALL registered events)
- * @route GET /api/student/qr-code
- * 
- * UNIVERSAL QR CODE DESIGN:
- * - One rotating QR per student (based on registration_no)
- * - Works for ANY event student is registered for (free or paid)
- * - Volunteer specifies event during scanning (route parameter)
- * - Backend validates student registration for that specific event
- * - Simpler UX: Student shows ONE QR for all events
- */
-const getEventQRCode = async (req, res, next) => {
-  try {
-    const studentId = req.user.id;
-
-    // Get student details
-    const student = await Student.findById(studentId, query);
-
-    if (!student) {
-      return errorResponse(res, 'Student not found', 404);
-    }
-
-    // Generate UNIVERSAL rotating QR code (no event_id needed)
-    // This QR works for ALL events the student is registered for
-    const qrImage = await QRCodeService.generateRotatingQRCodeImage(student);
-
-    const secondsUntilRotation = QRCodeService.getSecondsUntilRotation();
-
-    return successResponse(res, {
-      qr_code: qrImage,
-      rotation_info: {
-        seconds_until_rotation: secondsUntilRotation,
-        rotation_interval_seconds: QRCodeService.ROTATION_INTERVAL_SECONDS,
-        grace_period_seconds: QRCodeService.GRACE_PERIOD_WINDOWS * QRCodeService.ROTATION_INTERVAL_SECONDS
-      },
-      student: {
-        registration_no: student.registration_no,
-        full_name: student.full_name
-      },
-      usage: {
-        type: 'UNIVERSAL',
-        description: 'This QR code works for ALL events you are registered for',
-        instructions: 'Show this QR code to volunteers at ANY event check-in'
-      }
-    }, 'Universal QR code generated successfully');
   } catch (error) {
     next(error);
   }

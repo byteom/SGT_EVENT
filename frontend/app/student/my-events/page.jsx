@@ -139,7 +139,7 @@ export default function MyEventsPage() {
                   <RegistrationCard 
                     key={reg.id} 
                     registration={reg} 
-                    onViewQR={() => router.push("/student/qr")}
+                    onViewQR={() => router.push(`/student/events/${reg.event_id}/qr`)}
                     onDeregister={() => {
                       setSelectedRegistration(reg);
                       setShowDeregisterModal(true);

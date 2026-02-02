@@ -94,6 +94,13 @@ router.post('/events/:eventId/deregister', studentController.cancelEventRegistra
 router.get('/my-events', studentController.getMyRegisteredEvents);
 
 /**
+ * @route   GET /api/student/events/:eventId/qr-code
+ * @desc    Get event-specific QR code for registered event
+ * @access  Private (STUDENT)
+ */
+router.get('/events/:eventId/qr-code', studentController.getEventQRCode);
+
+/**
  * @route   POST /api/student/events/:eventId/payment/webhook
  * @desc    Razorpay payment webhook
  * @access  Public (Razorpay callback)
