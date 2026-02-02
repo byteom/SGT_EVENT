@@ -62,9 +62,9 @@ export default function AdminReportsPage() {
       if (adminStatsRes.data?.success) {
         setStats(prev => ({
           ...prev,
-          totalStudents: adminStatsRes.data.data.totalStudents || 0,
-          totalVolunteers: adminStatsRes.data.data.totalVolunteers || 0,
-          totalStalls: adminStatsRes.data.data.totalStalls || 0
+          totalStudents: adminStatsRes.data.data.students?.total || 0,
+          totalVolunteers: adminStatsRes.data.data.volunteers?.total || 0,
+          totalStalls: adminStatsRes.data.data.stalls?.total || 0
         }));
       }
 
