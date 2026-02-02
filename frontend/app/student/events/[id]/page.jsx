@@ -103,31 +103,37 @@ export default function StudentEventDetailPage() {
           handler: async (razorpayResponse) => {
             // Verify payment
             try {
-              console.log("Razorpay response:", razorpayResponse);
+              console.log("🎉 Payment handler called!");
+              console.log("📋 Razorpay response:", razorpayResponse);
 
               // Show processing message
               setRegistering(true);
 
               // Try to verify via backend endpoint
               try {
+                console.log("📤 Sending verify request...");
                 const verifyRes = await api.post(`/student/events/${eventId}/payment/verify`, {
                   razorpay_order_id: razorpayResponse.razorpay_order_id,
                   razorpay_payment_id: razorpayResponse.razorpay_payment_id,
                   razorpay_signature: razorpayResponse.razorpay_signature,
                 });
 
+                console.log("✅ Verify response:", verifyRes.data);
+
                 if (verifyRes.data?.success) {
                   setRegistering(false);
                   alert("✅ Payment successful! Registration complete.");
+                  console.log("🚀 Redirecting to my-events...");
                   router.push("/student/my-events");
                   return;
                 }
               } catch (verifyError) {
-                console.log("Verify endpoint error:", verifyError);
+                console.log("❌ Verify endpoint error:", verifyError);
+                console.log("❌ Error status:", verifyError.response?.status);
 
                 // If verify endpoint returns 404, payment might be processed via webhook
                 if (verifyError.response?.status === 404) {
-                  console.log("Verify endpoint not available, checking registration status...");
+                  console.log("⏳ Verify endpoint not available, checking registration status...");
 
                   // Wait a bit for webhook to process
                   await new Promise(resolve => setTimeout(resolve, 2000));
@@ -181,7 +187,8 @@ export default function StudentEventDetailPage() {
           },
           modal: {
             ondismiss: function() {
-              console.log("Payment modal closed by user");
+              console.log("⚠️ Payment modal closed/dismissed by user");
+              setRegistering(false);
               // Check if payment was successful by refreshing the event details
               fetchEventDetails();
             },
@@ -190,9 +197,18 @@ export default function StudentEventDetailPage() {
           },
         };
 
-        console.log("Razorpay options:", options);
+        console.log("🚀 Opening Razorpay checkout with options:", options);
         const razorpay = new window.Razorpay(options);
+        
+        razorpay.on('payment.failed', function(response) {
+          console.log("❌ Payment failed:", response.error);
+          alert("Payment failed: " + response.error.description);
+          setRegistering(false);
+        });
+        
+        console.log("🔓 Calling razorpay.open()");
         razorpay.open();
+        console.log("✅ Razorpay modal should be visible now");
       }
     } catch (error) {
       console.error("Error initiating payment:", error);

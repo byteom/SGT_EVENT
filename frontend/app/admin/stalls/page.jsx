@@ -14,8 +14,6 @@ export default function AllStallsPage() {
   const { isAuthenticated, isChecking } = useAdminAuth();
   const [allStalls, setAllStalls] = useState([]);
   const [adminName, setAdminName] = useState("Admin");
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showEditModal, setShowEditModal] = useState(false);
   const [selectedStall, setSelectedStall] = useState(null);
   const [showDetailSidebar, setShowDetailSidebar] = useState(false);
   const [qrCodeImage, setQrCodeImage] = useState(null);
@@ -29,12 +27,7 @@ export default function AllStallsPage() {
   const [sortDirection, setSortDirection] = useState("asc");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(25);
-  const [formData, setFormData] = useState({
-    stall_name: "",
-    stall_number: "",
-    school_name: "",
-    description: ""
-  });
+  // Removed: showCreateModal, showEditModal, formData - Admin is read-only
 
   async function load() {
     try {
@@ -182,66 +175,16 @@ export default function AllStallsPage() {
     return sortDirection === "asc" ? "arrow_upward" : "arrow_downward";
   };
 
-  const handleCreate = async (e) => {
-    e.preventDefault();
-    try {
-      const res = await api.post("/stall", formData);
-      if (res.data?.success) {
-        alert("Stall created successfully");
-        setShowCreateModal(false);
-        setFormData({ stall_name: "", stall_number: "", school_name: "", description: "" });
-        load();
-      }
-    } catch (error) {
-      console.error("Error creating stall:", error);
-      alert(error.response?.data?.message || "Failed to create stall");
-    }
-  };
+  // Admin can only view stalls, not create them
+  // Stall creation is handled by Event Managers
 
-  const handleUpdate = async (e) => {
-    e.preventDefault();
-    try {
-      const res = await api.put(`/stall/${selectedStall.id}`, {
-        stall_name: formData.stall_name,
-        description: formData.description
-      });
-      if (res.data?.success) {
-        alert("Stall updated successfully");
-        setShowEditModal(false);
-        setSelectedStall(null);
-        load();
-      }
-    } catch (error) {
-      console.error("Error updating stall:", error);
-      alert(error.response?.data?.message || "Failed to update stall");
-    }
-  };
+  // Admin can only view stalls, not edit them
+  // Stall management is handled by Event Managers
 
-  const handleDelete = async (id) => {
-    if (!confirm("Are you sure you want to delete this stall?")) return;
-    
-    try {
-      const res = await api.delete(`/stall/${id}`);
-      if (res.data?.success) {
-        alert("Stall deleted successfully");
-        load();
-      }
-    } catch (error) {
-      console.error("Error deleting stall:", error);
-      alert(error.response?.data?.message || "Failed to delete stall");
-    }
-  };
+  // Admin can only view stalls, not delete them
+  // Stall management is handled by Event Managers
 
-  const openEditModal = (stall) => {
-    setSelectedStall(stall);
-    setFormData({
-      stall_name: stall.stall_name || "",
-      stall_number: stall.stall_number || "",
-      school_name: stall.school_name || "",
-      description: stall.description || ""
-    });
-    setShowEditModal(true);
-  };
+  // Removed - Admin cannot edit stalls
 
   const handleStallClick = async (stall) => {
     setSelectedStall(stall);
@@ -360,16 +303,6 @@ export default function AllStallsPage() {
                 <span className="material-symbols-outlined text-lg">download</span>
                 Download Excel
               </button>
-              <button 
-                onClick={() => {
-                  setFormData({ stall_name: "", stall_number: "", school_name: "", description: "" });
-                  setShowCreateModal(true);
-                }}
-                className="px-4 py-2.5 bg-blue-100 text-primary border border-blue-200 rounded-lg hover:bg-blue-200 transition text-sm font-medium flex items-center justify-center gap-2"
-              >
-                <span className="material-symbols-outlined text-lg">add</span>
-                Add Stall
-              </button>
             </div>
           </div>
         </div>
@@ -428,28 +361,6 @@ export default function AllStallsPage() {
                 <div className="text-gray-700">{s.school_name || "—"}</div>
                 <div className="flex items-center gap-2">
                   <span className="text-gray-700">{s.total_feedback_count || 0}</span>
-                  <div className="flex gap-1 ml-auto">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openEditModal(s);
-                      }}
-                      className="text-gray-700 hover:text-primary p-1"
-                      title="Edit"
-                    >
-                      <span className="material-symbols-outlined text-lg">edit</span>
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDelete(s.id);
-                      }}
-                      className="text-gray-700 hover:text-red-600 p-1"
-                      title="Delete"
-                    >
-                      <span className="material-symbols-outlined text-lg">delete</span>
-                    </button>
-                  </div>
                 </div>
               </div>
             ))
@@ -497,26 +408,6 @@ export default function AllStallsPage() {
                     <button className="p-2 text-gray-700 hover:text-primary hover:bg-gray-100 rounded-lg transition">
                       <span className="material-symbols-outlined text-xl">qr_code</span>
                     </button>
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openEditModal(s);
-                      }}
-                      className="p-2 text-gray-700 hover:text-primary hover:bg-gray-100 rounded-lg transition"
-                      title="Edit"
-                    >
-                      <span className="material-symbols-outlined text-xl">edit</span>
-                    </button>
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDelete(s.id);
-                      }}
-                      className="p-2 text-gray-700 hover:text-red-600 hover:bg-gray-100 rounded-lg transition"
-                      title="Delete"
-                    >
-                      <span className="material-symbols-outlined text-xl">delete</span>
-                    </button>
                   </div>
                 </div>
               </div>
@@ -524,132 +415,7 @@ export default function AllStallsPage() {
           )}
         </div>
 
-        {/* Create Modal */}
-        {showCreateModal && (
-          <Modal
-            title="Create New Stall"
-            onClose={() => setShowCreateModal(false)}
-            onSubmit={handleCreate}
-          >
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-dark-text mb-2">
-                  Stall Name *
-                </label>
-                <input
-                  type="text"
-                  value={formData.stall_name}
-                  onChange={(e) => setFormData({ ...formData, stall_name: e.target.value })}
-                  className="w-full px-4 py-2 border border-light-gray-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-dark-text bg-card-background"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-dark-text mb-2">
-                  Stall Number *
-                </label>
-                <input
-                  type="text"
-                  value={formData.stall_number}
-                  onChange={(e) => setFormData({ ...formData, stall_number: e.target.value })}
-                  className="w-full px-4 py-2 border border-light-gray-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-dark-text bg-card-background"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-dark-text mb-2">
-                  School/Department *
-                </label>
-                <input
-                  type="text"
-                  value={formData.school_name}
-                  onChange={(e) => setFormData({ ...formData, school_name: e.target.value })}
-                  list="schools-list"
-                  className="w-full px-4 py-2 border border-light-gray-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-dark-text bg-card-background"
-                  required
-                />
-                <datalist id="schools-list">
-                  {schools.map((school, i) => (
-                    <option key={i} value={school} />
-                  ))}
-                </datalist>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-dark-text mb-2">
-                  Description
-                </label>
-                <textarea
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  rows={3}
-                  className="w-full px-4 py-2 border border-light-gray-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-dark-text bg-card-background"
-                />
-              </div>
-            </div>
-          </Modal>
-        )}
-
-        {/* Edit Modal */}
-        {showEditModal && selectedStall && (
-          <Modal
-            title="Edit Stall"
-            onClose={() => {
-              setShowEditModal(false);
-              setSelectedStall(null);
-            }}
-            onSubmit={handleUpdate}
-          >
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-dark-text mb-2">
-                  Stall Name *
-                </label>
-                <input
-                  type="text"
-                  value={formData.stall_name}
-                  onChange={(e) => setFormData({ ...formData, stall_name: e.target.value })}
-                  className="w-full px-4 py-2 border border-light-gray-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-dark-text bg-card-background"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-dark-text mb-2">
-                  Stall Number
-                </label>
-                <input
-                  type="text"
-                  value={formData.stall_number}
-                  disabled
-                  className="w-full px-4 py-2 border border-light-gray-border rounded-lg bg-gray-50 text-gray-700 cursor-not-allowed"
-                />
-                <p className="text-xs text-gray-700 mt-1">Stall number cannot be changed</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-dark-text mb-2">
-                  School/Department
-                </label>
-                <input
-                  type="text"
-                  value={formData.school_name}
-                  disabled
-                  className="w-full px-4 py-2 border border-light-gray-border rounded-lg bg-gray-50 text-gray-700 cursor-not-allowed"
-                />
-                <p className="text-xs text-gray-700 mt-1">School cannot be changed</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-dark-text mb-2">
-                  Description
-                </label>
-                <textarea
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  rows={3}
-                  className="w-full px-4 py-2 border border-light-gray-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-dark-text bg-card-background"
-                />
-              </div>
-            </div>
-          </Modal>
-        )}
+        {/* Create and Edit modals removed - Admin can only view stalls */}
 
         {/* Pagination */}
         {totalPages > 1 && (

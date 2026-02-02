@@ -17,7 +17,26 @@ import { uploadStallImage } from '../services/cloudinary.js';
  */
 const getAllStalls = async (req, res, next) => {
   try {
-    const stalls = await Stall.findAll(query);
+    // Check both req.query.event_id AND req.params.eventId (for event manager routes)
+    const event_id = req.query.event_id || req.params.eventId;
+    
+    console.log('🏪 getAllStalls called');
+    console.log('📋 req.query.event_id:', req.query.event_id);
+    console.log('📋 req.params.eventId:', req.params.eventId);
+    console.log('🔍 Resolved event_id:', event_id);
+    
+    let stalls;
+    if (event_id) {
+      // Filter by event_id when provided (e.g., from event manager routes)
+      console.log('✅ Filtering stalls by event_id:', event_id);
+      stalls = await Stall.findByEvent(event_id, query);
+      console.log('📦 Found stalls:', stalls.length);
+    } else {
+      // Get all stalls (for admin or general listing)
+      console.log('⚠️ No event_id - returning ALL stalls');
+      stalls = await Stall.findAll(query);
+    }
+    
     return successResponse(res, stalls);
   } catch (error) {
     next(error);

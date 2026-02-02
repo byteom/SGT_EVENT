@@ -7,6 +7,7 @@ import { useStudentAuth } from "@/hooks/useAuth";
 import StudentSidebar from "@/components/student/StudentSidebar";
 import StudentHeader from "@/components/student/StudentHeader";
 import StudentMobileNav from "@/components/student/StudentMobileNav";
+import DeregisterModal from "@/components/student/DeregisterModal";
 
 export default function MyEventsPage() {
   const { isAuthenticated, isChecking } = useStudentAuth();
@@ -14,6 +15,8 @@ export default function MyEventsPage() {
   const [theme, setTheme] = useState("light");
   const [registrations, setRegistrations] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showDeregisterModal, setShowDeregisterModal] = useState(false);
+  const [selectedRegistration, setSelectedRegistration] = useState(null);
 
   useEffect(() => {
     const saved = localStorage.getItem("theme") || "light";
@@ -137,6 +140,10 @@ export default function MyEventsPage() {
                     key={reg.id} 
                     registration={reg} 
                     onViewQR={() => router.push("/student/qr")}
+                    onDeregister={() => {
+                      setSelectedRegistration(reg);
+                      setShowDeregisterModal(true);
+                    }}
                   />
                 ))}
               </div>
@@ -160,11 +167,27 @@ export default function MyEventsPage() {
 
         <StudentMobileNav />
       </div>
+
+      {/* Deregister Modal */}
+      {showDeregisterModal && selectedRegistration && (
+        <DeregisterModal
+          registration={selectedRegistration}
+          onClose={() => {
+            setShowDeregisterModal(false);
+            setSelectedRegistration(null);
+          }}
+          onSuccess={() => {
+            setShowDeregisterModal(false);
+            setSelectedRegistration(null);
+            fetchMyEvents();
+          }}
+        />
+      )}
     </div>
   );
 }
 
-function RegistrationCard({ registration, onViewQR }) {
+function RegistrationCard({ registration, onViewQR, onDeregister }) {
   const formatDate = (dateString) => {
     if (!dateString) return "N/A";
     const date = new Date(dateString);
@@ -291,6 +314,13 @@ function RegistrationCard({ registration, onViewQR }) {
             <span className="material-symbols-outlined group-hover:scale-110 transition-transform">rate_review</span>
             <span className="group-hover:underline">Give Feedback</span>
             <span className="material-symbols-outlined text-base">arrow_forward</span>
+          </button>
+          <button
+            onClick={onDeregister}
+            className="flex items-center gap-3 text-sm text-red-600 hover:text-red-700 transition cursor-pointer group"
+          >
+            <span className="material-symbols-outlined group-hover:scale-110 transition-transform">cancel</span>
+            <span className="group-hover:underline">Cancel Registration</span>
           </button>
         </div>
       )}

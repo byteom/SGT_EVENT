@@ -568,7 +568,14 @@ const getAssignedEvents = async (req, res, next) => {
  */
 const getAllVolunteers = async (req, res, next) => {
   try {
-    const { is_active, event_id } = req.query;
+    const { is_active } = req.query;
+    // Check both req.query.event_id AND req.params.eventId (for event manager routes)
+    const event_id = req.query.event_id || req.params.eventId;
+
+    console.log('👥 getAllVolunteers called');
+    console.log('📋 req.query.event_id:', req.query.event_id);
+    console.log('📋 req.params.eventId:', req.params.eventId);
+    console.log('🔍 Resolved event_id:', event_id);
 
     let volunteers;
     if (is_active === 'true') {
@@ -579,12 +586,16 @@ const getAllVolunteers = async (req, res, next) => {
 
     // If event_id is provided, get only volunteers assigned to that event
     if (event_id) {
+      console.log('✅ Filtering volunteers by event_id:', event_id);
       const eventVolunteers = await query(
         'SELECT volunteer_id FROM event_volunteers WHERE event_id = $1 AND is_active = true',
         [event_id]
       );
       const volunteerIds = new Set(eventVolunteers.map(ev => ev.volunteer_id));
       volunteers = volunteers.filter(v => volunteerIds.has(v.id));
+      console.log('📦 Found volunteers:', volunteers.length);
+    } else {
+      console.log('⚠️ No event_id - returning ALL volunteers');
     }
 
     // Get event assignments for each volunteer

@@ -11,10 +11,9 @@ const getBaseURL = () => {
       return "http://localhost:5000/api";
     }
     
-    // For devtunnels or any remote access (including mobile)
-    // Use production backend since mobile can't access localhost:5000
+    // For devtunnels - use backend devtunnel
     if (hostname.includes('devtunnels.ms')) {
-      return "https://sgtu-event-backend.vercel.app/api";
+      return "https://fmx4mbdb-5000.inc1.devtunnels.ms/api";
     }
   }
 
@@ -74,16 +73,21 @@ api.interceptors.response.use(
     return response;
   },
   (error) => {
-    // Only log meaningful errors (skip empty or caught errors)
-    if (error && (error.config || error.response || error.message)) {
-      console.error('❌ API Error:', {
-        url: error.config?.url || 'unknown',
-        method: error.config?.method?.toUpperCase() || 'unknown',
-        status: error.response?.status || 'N/A',
-        message: error.response?.data?.message || error.message || 'Unknown error',
-        baseURL: error.config?.baseURL || 'unknown',
-      });
-    }
+    // Enhanced error logging for debugging
+    console.group('❌ API Error Details');
+    console.log('Raw error object:', error);
+    console.log('Error type:', typeof error);
+    console.log('Error string:', String(error));
+    console.log('Has config:', !!error?.config);
+    console.log('Has response:', !!error?.response);
+    console.log('Has message:', !!error?.message);
+    console.log('Is axios error:', error?.isAxiosError);
+    console.log('Error code:', error?.code);
+    console.log('URL:', error?.config?.url);
+    console.log('Method:', error?.config?.method);
+    console.log('Status:', error?.response?.status);
+    console.log('Response data:', error?.response?.data);
+    console.groupEnd();
 
     if (typeof window !== "undefined") {
       // Handle 401 Unauthorized - Token missing or invalid

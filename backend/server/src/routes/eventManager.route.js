@@ -274,9 +274,10 @@ router.post('/events/:eventId/stalls/create',
  * @desc    Get all stalls for event (alias for GET /api/stall)
  * @access  Private (EVENT_MANAGER - owner only)
  * @note    Uses existing StallController with event_id filter
+ * @note    Uses ViewOnly validation to allow viewing stalls for approved events
  */
 router.get('/events/:eventId/stalls/list',
-  validateEventOwnership,
+  validateEventOwnershipForViewOnly,
   filterByEventId,
   StallController.getAllStalls
 );
@@ -323,9 +324,10 @@ router.post('/events/:eventId/volunteers/create',
  * @desc    Get all volunteers for event (alias for GET /api/volunteer)
  * @access  Private (EVENT_MANAGER - owner only)
  * @note    Uses existing VolunteerController with event_id filter
+ * @note    Uses ViewOnly validation to allow viewing volunteers for approved events
  */
 router.get('/events/:eventId/volunteers/list',
-  validateEventOwnership,
+  validateEventOwnershipForViewOnly,
   filterByEventId,
   VolunteerController.getAllVolunteers
 );

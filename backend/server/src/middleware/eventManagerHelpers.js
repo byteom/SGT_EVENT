@@ -78,9 +78,16 @@ export const validateEventOwnership = async (req, res, next) => {
  * @middleware
  */
 export const filterByEventId = (req, res, next) => {
+  console.log('🔧 filterByEventId middleware called');
+  console.log('🔧 req.params.eventId:', req.params.eventId);
+  console.log('🔧 req.query BEFORE:', req.query);
+  
   if (req.params.eventId) {
     req.query.event_id = req.params.eventId;
+    console.log('🔧 Set req.query.event_id to:', req.params.eventId);
   }
+  
+  console.log('🔧 req.query AFTER:', req.query);
   next();
 };
 

@@ -33,27 +33,7 @@ export default function EditEventPage() {
     event_category: "",
   });
 
-  useEffect(() => {
-    if (!isChecking && isAuthenticated && eventId) {
-      fetchEventDetails();
-    }
-  }, [isChecking, isAuthenticated, eventId]);
-
-  if (isChecking || loading) {
-    return (
-      <div className="min-h-screen bg-soft-background flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-dark-text">Loading...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return null;
-  }
-
+  // Define fetchEventDetails before useEffect
   const fetchEventDetails = async () => {
     try {
       setLoading(true);
@@ -105,6 +85,27 @@ export default function EditEventPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!isChecking && isAuthenticated && eventId) {
+      fetchEventDetails();
+    }
+  }, [isChecking, isAuthenticated, eventId]);
+
+  if (isChecking || loading) {
+    return (
+      <div className="min-h-screen bg-soft-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-dark-text">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return null;
+  }
 
   const handleChange = (e) => {
     const { name, value } = e.target;

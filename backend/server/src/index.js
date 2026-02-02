@@ -11,11 +11,18 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Trust proxy for rate limiting (needed for X-Forwarded-For header from devtunnels/proxies)
+app.set('trust proxy', 1);
+
 // Middleware
 app.use(helmet());
 app.use(cors({
-  origin: true, // Allow all origins or specify
-  // origin: process.env.CLIENT_URL || 'http://localhost:3000',
+  origin: [
+    'http://localhost:3000',
+    'https://fmx4mbdb-3000.inc1.devtunnels.ms',
+    'https://fmx4mbdb-5000.inc1.devtunnels.ms',
+    process.env.CLIENT_URL
+  ].filter(Boolean), // Remove undefined values
   credentials: true // Enable cookies and authentication headers
 }));
 app.use(compression());

@@ -149,6 +149,7 @@ export default function EventManagerHeader({ managerName, onLogout }) {
                     width={48}
                     height={48}
                     className="rounded-full object-cover"
+                    priority
                   />
           <h1 className="text-lg sm:text-xl font-semibold text-dark-text dark:text-white truncate">
             {getPageTitle(pathname)}

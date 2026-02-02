@@ -860,11 +860,6 @@ class EventManagerController {
         return errorResponse(res, `Event cannot be submitted. Current status: ${event.status}`, 400);
       }
 
-      // Validate event has required images
-      if (!event.banner_image_url) {
-        return errorResponse(res, 'Event must have a banner image before submission', 400);
-      }
-
       // Check if event has at least one stall
       const stallsQuery = 'SELECT COUNT(*) as count FROM stalls WHERE event_id = $1 AND is_active = true';
       const stallResult = await query(stallsQuery, [eventId]);
@@ -942,8 +937,8 @@ class EventManagerController {
       // Get total registrations
       const registrationsQuery = `
         SELECT COUNT(*) as total, 
-               SUM(CASE WHEN payment_status = 'COMPLETED' THEN 1 ELSE 0 END) as paid,
-               SUM(CASE WHEN attendance_status = 'PRESENT' THEN 1 ELSE 0 END) as attended
+               SUM(CASE WHEN payment_status = 'COMPLETED' OR payment_status = 'NOT_REQUIRED' THEN 1 ELSE 0 END) as paid,
+               SUM(CASE WHEN has_checked_in = TRUE THEN 1 ELSE 0 END) as attended
         FROM event_registrations
         WHERE event_id = $1
       `;
@@ -956,25 +951,26 @@ class EventManagerController {
 
       // Calculate revenue
       const revenueQuery = `
-        SELECT COALESCE(SUM(amount_paid), 0) as total_revenue
+        SELECT COALESCE(SUM(payment_amount), 0) as total_revenue
         FROM event_registrations
         WHERE event_id = $1 AND payment_status = 'COMPLETED'
       `;
       const revenueResult = await query(revenueQuery, [eventId]);
       const revenue = parseFloat(revenueResult[0].total_revenue) || 0;
 
-      // Get feedback stats
+      // Get feedback stats - feedbacks are linked to stalls, so we need to get feedback for stalls belonging to this event
       const feedbackQuery = `
         SELECT 
           COUNT(*) as total_feedbacks,
-          ROUND(AVG(overall_rating), 2) as average_rating,
-          COUNT(CASE WHEN overall_rating = 5 THEN 1 END) as rating_5,
-          COUNT(CASE WHEN overall_rating = 4 THEN 1 END) as rating_4,
-          COUNT(CASE WHEN overall_rating = 3 THEN 1 END) as rating_3,
-          COUNT(CASE WHEN overall_rating = 2 THEN 1 END) as rating_2,
-          COUNT(CASE WHEN overall_rating = 1 THEN 1 END) as rating_1
-        FROM feedbacks
-        WHERE event_id = $1
+          ROUND(AVG(f.rating), 2) as average_rating,
+          COUNT(CASE WHEN f.rating = 5 THEN 1 END) as rating_5,
+          COUNT(CASE WHEN f.rating = 4 THEN 1 END) as rating_4,
+          COUNT(CASE WHEN f.rating = 3 THEN 1 END) as rating_3,
+          COUNT(CASE WHEN f.rating = 2 THEN 1 END) as rating_2,
+          COUNT(CASE WHEN f.rating = 1 THEN 1 END) as rating_1
+        FROM feedbacks f
+        JOIN stalls s ON f.stall_id = s.id
+        WHERE s.event_id = $1
       `;
       const feedbackResult = await query(feedbackQuery, [eventId]);
       const feedback = {
@@ -1019,12 +1015,12 @@ class EventManagerController {
           s.id, s.stall_name, s.stall_number, s.image_url,
           sc.school_name,
           COUNT(DISTINCT f.id) as total_feedbacks,
-          ROUND(AVG(f.overall_rating), 2) as average_rating,
-          COUNT(CASE WHEN f.overall_rating = 5 THEN 1 END) as rating_5,
-          COUNT(CASE WHEN f.overall_rating = 4 THEN 1 END) as rating_4,
-          COUNT(CASE WHEN f.overall_rating = 3 THEN 1 END) as rating_3,
-          COUNT(CASE WHEN f.overall_rating = 2 THEN 1 END) as rating_2,
-          COUNT(CASE WHEN f.overall_rating = 1 THEN 1 END) as rating_1,
+          ROUND(AVG(f.rating), 2) as average_rating,
+          COUNT(CASE WHEN f.rating = 5 THEN 1 END) as rating_5,
+          COUNT(CASE WHEN f.rating = 4 THEN 1 END) as rating_4,
+          COUNT(CASE WHEN f.rating = 3 THEN 1 END) as rating_3,
+          COUNT(CASE WHEN f.rating = 2 THEN 1 END) as rating_2,
+          COUNT(CASE WHEN f.rating = 1 THEN 1 END) as rating_1,
           r.rank as ranking_position,
           r.total_votes as ranking_votes
         FROM stalls s

@@ -9,6 +9,7 @@ import { filterData, filterByField, sortData, paginateData, getUniqueValues } fr
 import { useAdminAuth } from "@/hooks/useAuth";
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
+import BulkUploadModal from "@/components/admin/BulkUploadModal";
 
 export default function AdminStudentsPage() {
   const { isAuthenticated, isChecking } = useAdminAuth();
@@ -22,6 +23,7 @@ export default function AdminStudentsPage() {
   const [itemsPerPage, setItemsPerPage] = useState(25);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showBulkUploadModal, setShowBulkUploadModal] = useState(false);
 
   async function fetchStudents() {
     setLoading(true);
@@ -223,6 +225,14 @@ export default function AdminStudentsPage() {
                 Showing {students.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} - {Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems} students
               </div>
               <div className="flex gap-2">
+                <button 
+                  onClick={() => setShowBulkUploadModal(true)}
+                  className="flex items-center justify-center gap-2 px-4 py-2.5 text-sm bg-primary text-white rounded-lg hover:bg-primary/90 transition"
+                >
+                  <span className="material-symbols-outlined text-lg">upload</span>
+                  <span className="hidden sm:inline">Bulk Upload</span>
+                  <span className="sm:hidden">Upload</span>
+                </button>
                 <button 
                   onClick={handleDownloadExcel}
                   className="flex items-center justify-center gap-2 px-4 py-2.5 text-sm bg-blue-100 text-primary border border-blue-200 rounded-lg hover:bg-blue-200 transition"
@@ -462,6 +472,17 @@ export default function AdminStudentsPage() {
           onClose={() => {
             setShowDetailModal(false);
             setSelectedStudent(null);
+          }}
+        />
+      )}
+
+      {/* Bulk Upload Modal */}
+      {showBulkUploadModal && (
+        <BulkUploadModal
+          onClose={() => setShowBulkUploadModal(false)}
+          onSuccess={() => {
+            setShowBulkUploadModal(false);
+            fetchStudents();
           }}
         />
       )}

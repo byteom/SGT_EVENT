@@ -49,27 +49,41 @@ export default function EventDetailPage() {
   const fetchEventDetails = async () => {
     try {
       setLoading(true);
-      const [eventRes, volunteersRes, registrationsRes, stallsRes, analyticsRes] = await Promise.all([
-        api.get(`/event-manager/events/${eventId}`).catch(() => ({ data: { success: false } })),
-        api.get(`/event-manager/events/${eventId}/volunteers`).catch(() => ({ data: { success: false, data: { volunteers: [] } } })),
-        api.get(`/event-manager/events/${eventId}/registrations`).catch(() => ({ data: { success: false, data: { data: [] } } })),
-        api.get(`/event-manager/events/${eventId}/stalls`).catch(() => ({ data: { success: false, data: { stalls: [] } } })),
-        api.get(`/event-manager/events/${eventId}/analytics`).catch(() => ({ data: { success: false, data: null } }))
-      ]);
-
-      if (eventRes.data?.success) {
-        setEvent(eventRes.data.data.event);
-        setStats(eventRes.data.data.stats);
-      } else {
-        // If event details fail, redirect
+      
+      // First fetch event details to check status
+      const eventRes = await api.get(`/event-manager/events/${eventId}`).catch(() => ({ data: { success: false } }));
+      
+      if (!eventRes.data?.success) {
         alert("Failed to load event details");
         router.push("/event-manager/events");
         return;
       }
+      
+      const eventData = eventRes.data.data.event;
+      setEvent(eventData);
+      setStats(eventRes.data.data.stats);
+      
+      // Check if event is approved/active/completed for analytics
+      const canShowAnalytics = ['APPROVED', 'ACTIVE', 'COMPLETED'].includes(eventData.status);
+      
+      // Fetch remaining data in parallel
+      const [volunteersRes, registrationsRes, stallsRes, analyticsRes] = await Promise.all([
+        api.get(`/event-manager/events/${eventId}/volunteers/list`).catch(() => ({ data: { success: false, data: { volunteers: [] } } })),
+        api.get(`/event-manager/events/${eventId}/registrations`).catch(() => ({ data: { success: false, data: { data: [] } } })),
+        api.get(`/event-manager/events/${eventId}/stalls/list`).catch(() => ({ data: { success: false, data: { stalls: [] } } })),
+        // Only fetch analytics for approved/active/completed events
+        canShowAnalytics 
+          ? api.get(`/event-manager/events/${eventId}/analytics`).catch(() => ({ data: { success: false, data: null } }))
+          : Promise.resolve({ data: { success: false, data: null } })
+      ]);
 
       if (volunteersRes.data?.success) {
-        setVolunteers(volunteersRes.data.data.volunteers || []);
+        console.log('✅ Volunteers Response:', volunteersRes.data);
+        const volunteersArray = volunteersRes.data.data?.volunteers || volunteersRes.data.data || [];
+        console.log('👥 Volunteers Array:', volunteersArray, 'Length:', volunteersArray.length);
+        setVolunteers(volunteersArray);
       } else {
+        console.log('❌ Volunteers fetch failed:', volunteersRes.data);
         setVolunteers([]);
       }
 
@@ -80,8 +94,12 @@ export default function EventDetailPage() {
       }
 
       if (stallsRes.data?.success) {
-        setStalls(stallsRes.data.data.stalls || []);
+        console.log('✅ Stalls Response:', stallsRes.data);
+        const stallsArray = stallsRes.data.data || [];
+        console.log('📦 Stalls Array:', stallsArray, 'Length:', stallsArray.length);
+        setStalls(stallsArray);
       } else {
+        console.log('❌ Stalls fetch failed:', stallsRes.data);
         setStalls([]);
       }
 
@@ -113,6 +131,25 @@ export default function EventDetailPage() {
     } catch (error) {
       console.error("Error deleting event:", error);
       alert(error.response?.data?.message || "Failed to delete event");
+    }
+  };
+
+  const handleSubmitForApproval = async () => {
+    if (!confirm("Submit this event for admin approval? You won't be able to edit it after submission.")) {
+      return;
+    }
+
+    try {
+      const response = await api.post(`/event-manager/events/${eventId}/submit-for-approval`);
+      if (response.data?.success) {
+        alert("Event submitted for approval successfully!");
+        fetchEventDetails();
+      } else {
+        alert(response.data?.message || "Failed to submit for approval");
+      }
+    } catch (error) {
+      console.error("Error submitting for approval:", error);
+      alert(error.response?.data?.message || "Failed to submit for approval");
     }
   };
 
@@ -194,6 +231,15 @@ export default function EventDetailPage() {
                 </div>
 
                 <div className="flex gap-2">
+                  {event.status === 'DRAFT' && (
+                    <button
+                      onClick={handleSubmitForApproval}
+                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition text-sm font-medium flex items-center gap-2"
+                    >
+                      <span className="material-symbols-outlined text-lg">send</span>
+                      <span>Submit for Approval</span>
+                    </button>
+                  )}
                   {['DRAFT', 'PENDING_APPROVAL'].includes(event.status) && (
                     <button
                       onClick={() => router.push(`/event-manager/events/${eventId}/edit`)}
@@ -356,8 +402,12 @@ function OverviewTab({ event, stats, registrations, volunteers, stalls }) {
 
 function VolunteersTab({ volunteers, eventId, onUpdate }) {
   const [showAddModal, setShowAddModal] = useState(false);
-  const [volunteerId, setVolunteerId] = useState("");
-  const [location, setLocation] = useState("");
+  const [volunteerForm, setVolunteerForm] = useState({
+    full_name: "",
+    email: "",
+    phone: "",
+    assigned_location: ""
+  });
   const [adding, setAdding] = useState(false);
 
   const handleDownloadExcel = () => {
@@ -405,23 +455,33 @@ function VolunteersTab({ volunteers, eventId, onUpdate }) {
   };
 
   const handleAddVolunteer = async () => {
-    if (!volunteerId || !volunteerId.trim()) {
-      alert("Please enter volunteer ID");
+    if (!volunteerForm.full_name || !volunteerForm.email) {
+      alert("Please enter volunteer name and email");
+      return;
+    }
+
+    // Email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(volunteerForm.email)) {
+      alert("Please enter a valid email address");
       return;
     }
 
     try {
       setAdding(true);
-      const response = await api.post(`/event-manager/events/${eventId}/volunteers`, {
-        volunteer_id: volunteerId.trim(),
-        assigned_location: location.trim() || undefined
+      const response = await api.post(`/event-manager/events/${eventId}/volunteers/create`, {
+        full_name: volunteerForm.full_name.trim(),
+        email: volunteerForm.email.trim().toLowerCase(),
+        phone: volunteerForm.phone.trim() || undefined,
+        assigned_location: volunteerForm.assigned_location.trim() || undefined,
+        event_id: eventId
       });
 
       if (response.data?.success) {
-        alert("Volunteer added successfully");
+        const msg = response.data.message || "Volunteer created successfully";
+        alert(msg);
         setShowAddModal(false);
-        setVolunteerId("");
-        setLocation("");
+        setVolunteerForm({ full_name: "", email: "", phone: "", assigned_location: "" });
         onUpdate();
       }
     } catch (error) {
@@ -536,30 +596,51 @@ function VolunteersTab({ volunteers, eventId, onUpdate }) {
       {showAddModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-card-background p-6 rounded-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
-            <h3 className="text-lg font-semibold text-dark-text mb-4">Add Volunteer</h3>
+            <h3 className="text-lg font-semibold text-dark-text mb-4">Create New Volunteer</h3>
 
             {/* Info Box */}
             <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
               <p className="text-sm text-blue-800">
-                <span className="font-medium">Tip:</span> Enter the volunteer's ID (UUID format). You can find volunteer IDs from the system administrator.
+                <span className="font-medium">Note:</span> A default password will be generated for the volunteer based on their name and event code.
               </p>
             </div>
 
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Volunteer ID <span className="text-red-500">*</span>
+                  Full Name <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
-                  value={volunteerId}
-                  onChange={(e) => setVolunteerId(e.target.value)}
+                  value={volunteerForm.full_name}
+                  onChange={(e) => setVolunteerForm({ ...volunteerForm, full_name: e.target.value })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-600"
-                  placeholder="e.g., 550e8400-e29b-41d4-a716-446655440000"
+                  placeholder="e.g., John Doe"
                 />
-                <p className="mt-1 text-xs text-gray-700">
-                  Enter the volunteer's unique ID
-                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Email <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="email"
+                  value={volunteerForm.email}
+                  onChange={(e) => setVolunteerForm({ ...volunteerForm, email: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-600"
+                  placeholder="e.g., john@example.com"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Phone Number
+                </label>
+                <input
+                  type="tel"
+                  value={volunteerForm.phone}
+                  onChange={(e) => setVolunteerForm({ ...volunteerForm, phone: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-600"
+                  placeholder="e.g., 9876543210"
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -567,27 +648,13 @@ function VolunteersTab({ volunteers, eventId, onUpdate }) {
                 </label>
                 <input
                   type="text"
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
+                  value={volunteerForm.assigned_location}
+                  onChange={(e) => setVolunteerForm({ ...volunteerForm, assigned_location: e.target.value })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-600"
                   placeholder="e.g., Main Gate, Registration Desk"
                 />
               </div>
             </div>
-
-            {/* Currently Assigned Volunteers Reference */}
-            {volunteers.length > 0 && (
-              <div className="mt-4 p-3 bg-gray-50 rounded-lg">
-                <p className="text-xs font-medium text-gray-700 mb-2">Currently Assigned Volunteers:</p>
-                <div className="space-y-1 max-h-32 overflow-y-auto">
-                  {volunteers.slice(0, 5).map((vol) => (
-                    <div key={vol.id} className="text-xs text-gray-700">
-                      {vol.full_name} - <span className="font-mono text-[10px]">{vol.volunteer_id}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
 
             <div className="flex gap-3 mt-6">
               <button
@@ -595,13 +662,330 @@ function VolunteersTab({ volunteers, eventId, onUpdate }) {
                 disabled={adding}
                 className="flex-1 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition disabled:opacity-50"
               >
-                {adding ? "Adding..." : "Add Volunteer"}
+                {adding ? "Creating..." : "Create Volunteer"}
               </button>
               <button
                 onClick={() => {
                   setShowAddModal(false);
-                  setVolunteerId("");
-                  setLocation("");
+                  setVolunteerForm({ full_name: "", email: "", phone: "", assigned_location: "" });
+                }}
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StallsTab({ stalls, eventId, onUpdate }) {
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [schools, setSchools] = useState([]);
+  const [formData, setFormData] = useState({
+    stall_name: "",
+    stall_code: "",
+    location: "",
+    description: "",
+    points: "",
+    school_id: "",
+  });
+  const [adding, setAdding] = useState(false);
+
+  // Fetch schools when modal opens
+  useEffect(() => {
+    if (showAddModal) {
+      fetchSchools();
+    }
+  }, [showAddModal]);
+
+  const fetchSchools = async () => {
+    try {
+      const response = await api.get('/event-manager/schools');
+      if (response.data?.success) {
+        setSchools(response.data.data.schools || []);
+        // Auto-select first school if available
+        if (response.data.data.schools?.length > 0 && !formData.school_id) {
+          setFormData(prev => ({ ...prev, school_id: response.data.data.schools[0].id }));
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching schools:", error);
+    }
+  };
+
+  const handleAddStall = async () => {
+    if (!formData.stall_name || !formData.stall_code) {
+      alert("Stall name and code are required");
+      return;
+    }
+
+    if (!formData.school_id) {
+      alert("Please select a school/department");
+      return;
+    }
+
+    try {
+      setAdding(true);
+      const payload = {
+        stall_name: formData.stall_name,
+        stall_number: formData.stall_code.toUpperCase(), // Backend expects stall_number
+        location: formData.location || null,
+        description: formData.description || null,
+        school_id: formData.school_id,
+        points_awarded: formData.points ? parseInt(formData.points) : 0,
+      };
+
+      const response = await api.post(`/event-manager/events/${eventId}/stalls/create`, payload);
+      
+      if (response.data?.success) {
+        alert("Stall added successfully!");
+        setShowAddModal(false);
+        setFormData({
+          stall_name: "",
+          stall_code: "",
+          location: "",
+          description: "",
+          points: "",
+          school_id: "",
+        });
+        onUpdate(); // Refresh data
+      }
+    } catch (error) {
+      console.error("Error adding stall:", error);
+      alert(error.response?.data?.message || "Failed to add stall");
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const handleDownloadExcel = () => {
+    if (stalls.length === 0) {
+      alert("No stalls to download");
+      return;
+    }
+
+    const excelData = stalls.map((stall, index) => ({
+      "S.No": index + 1,
+      "Stall Name": stall.stall_name || "N/A",
+      "Stall Code": stall.stall_code || "N/A",
+      "Location": stall.location || "N/A",
+      "Description": stall.description || "N/A",
+      "Points": stall.points_awarded || 0,
+      "Total Scans": stall.total_scans || 0,
+      "Status": stall.is_active ? "Active" : "Inactive",
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(excelData);
+    worksheet['!cols'] = [
+      { wch: 8 },
+      { wch: 25 },
+      { wch: 15 },
+      { wch: 20 },
+      { wch: 30 },
+      { wch: 10 },
+      { wch: 12 },
+      { wch: 10 },
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Stalls");
+    XLSX.writeFile(workbook, `event_${eventId}_stalls.xlsx`);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+        <h2 className="text-lg font-semibold text-dark-text">Stalls ({stalls.length})</h2>
+        <div className="flex gap-2">
+          {stalls.length > 0 && (
+            <button
+              onClick={handleDownloadExcel}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition text-sm font-medium flex items-center gap-2"
+            >
+              <span className="material-symbols-outlined text-lg">download</span>
+              <span>Download Excel</span>
+            </button>
+          )}
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition text-sm font-medium flex items-center gap-2"
+          >
+            <span className="material-symbols-outlined text-lg">add</span>
+            <span>Add Stall</span>
+          </button>
+        </div>
+      </div>
+
+      {stalls.length > 0 ? (
+        <div className="bg-card-background rounded-xl border border-light-gray-border overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Stall</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Code</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Location</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Points</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Scans</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {stalls.map((stall) => (
+                  <tr key={stall.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-dark-text">{stall.stall_name}</div>
+                      {stall.description && (
+                        <div className="text-xs text-gray-700 mt-0.5">{stall.description}</div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="text-sm font-mono text-dark-text">{stall.stall_code}</span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="text-sm text-gray-700">{stall.location || "N/A"}</span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="text-sm font-semibold text-primary">{stall.points_awarded || 0}</span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="text-sm text-gray-700">{stall.total_scans || 0}</span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                        stall.is_active ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+                      }`}>
+                        {stall.is_active ? "Active" : "Inactive"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        <div className="text-center py-12 bg-card-background rounded-xl border border-light-gray-border">
+          <span className="material-symbols-outlined text-6xl text-gray-300">store</span>
+          <p className="text-gray-700 mt-2">No stalls created yet</p>
+          <p className="text-sm text-gray-700 mt-1">Click "Add Stall" to create stalls for this event</p>
+        </div>
+      )}
+
+      {/* Add Stall Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-card-background p-6 rounded-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold text-dark-text mb-4">Add Stall</h3>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  School/Department <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={formData.school_id}
+                  onChange={(e) => setFormData(prev => ({ ...prev, school_id: e.target.value }))}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-600"
+                >
+                  <option value="">Select School/Department</option>
+                  {schools.map(school => (
+                    <option key={school.id} value={school.id}>
+                      {school.school_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Stall Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={formData.stall_name}
+                  onChange={(e) => setFormData(prev => ({ ...prev, stall_name: e.target.value }))}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-600"
+                  placeholder="e.g., Registration Desk"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Stall Code <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={formData.stall_code}
+                  onChange={(e) => setFormData(prev => ({ ...prev, stall_code: e.target.value.toUpperCase() }))}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-600 uppercase"
+                  placeholder="e.g., STALL01"
+                  maxLength={20}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Location
+                </label>
+                <input
+                  type="text"
+                  value={formData.location}
+                  onChange={(e) => setFormData(prev => ({ ...prev, location: e.target.value }))}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-600"
+                  placeholder="e.g., Main Hall, Block A"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Description
+                </label>
+                <textarea
+                  value={formData.description}
+                  onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-600"
+                  placeholder="Brief description of the stall"
+                  rows={3}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Points Awarded (per scan)
+                </label>
+                <input
+                  type="number"
+                  value={formData.points}
+                  onChange={(e) => setFormData(prev => ({ ...prev, points: e.target.value }))}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-600"
+                  placeholder="e.g., 10"
+                  min="0"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={handleAddStall}
+                disabled={adding}
+                className="flex-1 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition disabled:opacity-50"
+              >
+                {adding ? "Adding..." : "Add Stall"}
+              </button>
+              <button
+                onClick={() => {
+                  setShowAddModal(false);
+                  setFormData({
+                    stall_name: "",
+                    stall_code: "",
+                    location: "",
+                    description: "",
+                    points: "",
+                  });
                 }}
                 className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
               >
@@ -745,257 +1129,6 @@ function RegistrationsTab({ registrations }) {
         <div className="text-center py-12 bg-card-background rounded-xl border border-light-gray-border">
           <span className="material-symbols-outlined text-6xl text-gray-300">how_to_reg</span>
           <p className="text-gray-700 mt-2">No registrations yet</p>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function StallsTab({ stalls, eventId, onUpdate }) {
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [stallId, setStallId] = useState("");
-  const [adding, setAdding] = useState(false);
-
-  const handleDownloadExcel = () => {
-    if (stalls.length === 0) {
-      alert("No stalls to download");
-      return;
-    }
-
-    // Prepare data for Excel
-    const excelData = stalls.map((stall, index) => ({
-      "S.No": index + 1,
-      "Stall Number": stall.stall_number || "N/A",
-      "Stall Name": stall.stall_name || "N/A",
-      "School/Department": stall.school_name || "N/A",
-      "Location": stall.location || "N/A",
-      "Description": stall.description || "N/A",
-      "Stall ID": stall.id || "N/A",
-      "Total Feedback": stall.total_feedback_count || 0,
-      "Weighted Score": stall.weighted_score || 0
-    }));
-
-    // Create worksheet
-    const worksheet = XLSX.utils.json_to_sheet(excelData);
-
-    // Set column widths
-    worksheet['!cols'] = [
-      { wch: 6 },  // S.No
-      { wch: 12 }, // Stall Number
-      { wch: 25 }, // Stall Name
-      { wch: 25 }, // School/Department
-      { wch: 20 }, // Location
-      { wch: 35 }, // Description
-      { wch: 38 }, // Stall ID
-      { wch: 15 }, // Total Feedback
-      { wch: 15 }, // Weighted Score
-    ];
-
-    // Create workbook
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Stalls");
-
-    // Generate filename with current date
-    const fileName = `Event_Stalls_${new Date().toISOString().split('T')[0]}.xlsx`;
-
-    // Download file
-    XLSX.writeFile(workbook, fileName);
-  };
-
-  const handleAddStall = async () => {
-    if (!stallId || !stallId.trim()) {
-      alert("Please enter stall ID");
-      return;
-    }
-
-    try {
-      setAdding(true);
-      const response = await api.post(`/event-manager/events/${eventId}/stalls`, {
-        stall_id: stallId.trim()
-      });
-
-      if (response.data?.success) {
-        alert("Stall assigned successfully");
-        setShowAddModal(false);
-        setStallId("");
-        onUpdate();
-      }
-    } catch (error) {
-      console.error("Error assigning stall:", error);
-      alert(error.response?.data?.message || "Failed to assign stall");
-    } finally {
-      setAdding(false);
-    }
-  };
-
-  const handleRemoveStall = async (stId) => {
-    if (!confirm("Remove this stall from the event?")) return;
-
-    try {
-      const response = await api.delete(`/event-manager/events/${eventId}/stalls/${stId}`);
-      if (response.data?.success) {
-        alert("Stall removed successfully");
-        onUpdate();
-      }
-    } catch (error) {
-      console.error("Error removing stall:", error);
-      alert(error.response?.data?.message || "Failed to remove stall");
-    }
-  };
-
-  return (
-    <div>
-      <div className="mb-4 flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-        <h2 className="text-lg font-semibold text-dark-text">Assigned Stalls</h2>
-        <div className="flex gap-2">
-          {stalls.length > 0 && (
-            <button
-              onClick={handleDownloadExcel}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition text-sm font-medium flex items-center gap-2"
-            >
-              <span className="material-symbols-outlined text-lg">download</span>
-              <span>Download Excel</span>
-            </button>
-          )}
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition text-sm font-medium flex items-center gap-2"
-          >
-            <span className="material-symbols-outlined text-lg">add</span>
-            <span>Assign Stall</span>
-          </button>
-        </div>
-      </div>
-
-      {stalls.length > 0 ? (
-        <div className="bg-card-background rounded-xl border border-light-gray-border overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Stall #</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Stall Name</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">School/Dept</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Location</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Stall ID</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {stalls.map((stall) => (
-                  <tr key={stall.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-pink-600 flex items-center justify-center text-white font-semibold">
-                          <span className="material-symbols-outlined">store</span>
-                        </div>
-                        <div className="text-sm font-medium text-dark-text">
-                          #{stall.stall_number || "N/A"}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="text-sm font-medium text-dark-text">{stall.stall_name || "N/A"}</div>
-                      {stall.description && (
-                        <div className="text-xs text-gray-700 truncate max-w-xs" title={stall.description}>
-                          {stall.description}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{stall.school_name || "N/A"}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{stall.location || "N/A"}</td>
-                    <td className="px-4 py-3">
-                      <div className="text-xs font-mono text-gray-700 bg-gray-50 px-2 py-1 rounded max-w-xs truncate" title={stall.id}>
-                        {stall.id || "N/A"}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <button
-                        onClick={() => handleRemoveStall(stall.id)}
-                        className="text-red-600 hover:text-red-700 p-2 rounded hover:bg-red-50 transition"
-                        title="Remove stall"
-                      >
-                        <span className="material-symbols-outlined text-lg">delete</span>
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : (
-        <div className="text-center py-12 bg-card-background rounded-xl border border-light-gray-border">
-          <span className="material-symbols-outlined text-6xl text-gray-300">store</span>
-          <p className="text-gray-700 mt-2">No stalls assigned yet</p>
-          <p className="text-sm text-gray-700 mt-1">Click "Assign Stall" to add stalls to this event</p>
-        </div>
-      )}
-
-      {/* Add Stall Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-card-background p-6 rounded-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
-            <h3 className="text-lg font-semibold text-dark-text mb-4">Assign Stall</h3>
-
-            {/* Info Box */}
-            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="text-sm text-blue-800">
-                <span className="font-medium">Tip:</span> Enter the stall's ID (UUID format). You can find stall IDs from the system administrator.
-              </p>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Stall ID <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={stallId}
-                  onChange={(e) => setStallId(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-600"
-                  placeholder="e.g., 550e8400-e29b-41d4-a716-446655440000"
-                />
-                <p className="mt-1 text-xs text-gray-700">
-                  Enter the stall's unique ID to assign it to this event
-                </p>
-              </div>
-            </div>
-
-            {/* Currently Assigned Stalls Reference */}
-            {stalls.length > 0 && (
-              <div className="mt-4 p-3 bg-gray-50 rounded-lg">
-                <p className="text-xs font-medium text-gray-700 mb-2">Currently Assigned Stalls:</p>
-                <div className="space-y-1 max-h-32 overflow-y-auto">
-                  {stalls.slice(0, 5).map((stall) => (
-                    <div key={stall.id} className="text-xs text-gray-700">
-                      Stall #{stall.stall_number} - {stall.school_name} - <span className="font-mono text-[10px]">{stall.id}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={handleAddStall}
-                disabled={adding}
-                className="flex-1 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition disabled:opacity-50"
-              >
-                {adding ? "Assigning..." : "Assign Stall"}
-              </button>
-              <button
-                onClick={() => {
-                  setShowAddModal(false);
-                  setStallId("");
-                }}
-                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
         </div>
       )}
     </div>

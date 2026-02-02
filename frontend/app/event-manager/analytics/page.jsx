@@ -440,14 +440,34 @@ export default function AnalyticsPage() {
 
   const fetchAnalytics = async (eventId) => {
     try {
+      // Find the selected event to check its status
+      const selectedEventInfo = events.find(e => e.id === eventId);
+      console.log('📊 fetchAnalytics called for eventId:', eventId);
+      console.log('📊 selectedEventInfo:', selectedEventInfo);
+      console.log('📊 Event status:', selectedEventInfo?.status);
+      
+      const canShowAnalytics = selectedEventInfo && 
+        ['APPROVED', 'ACTIVE', 'COMPLETED'].includes(selectedEventInfo.status);
+      console.log('📊 canShowAnalytics:', canShowAnalytics);
+      
       const [analyticsRes, registrationsRes] = await Promise.all([
-        api.get(`/event-manager/events/${eventId}/analytics`).catch(() => ({ data: { success: false, data: null } })),
+        // Only fetch analytics for approved/active/completed events
+        canShowAnalytics 
+          ? api.get(`/event-manager/events/${eventId}/analytics`).catch((err) => {
+              console.log('❌ Analytics API error:', err);
+              return { data: { success: false, data: null } };
+            })
+          : Promise.resolve({ data: { success: false, data: null } }),
         api.get(`/event-manager/events/${eventId}/registrations`).catch(() => ({ data: { data: { data: [] } } }))
       ]);
 
+      console.log('📊 analyticsRes:', analyticsRes.data);
+
       if (analyticsRes.data?.success) {
+        console.log('✅ Setting analytics:', analyticsRes.data.data);
         setAnalytics(analyticsRes.data.data);
       } else {
+        console.log('⚠️ Analytics not successful, setting null');
         setAnalytics(null);
       }
 
@@ -534,7 +554,7 @@ export default function AnalyticsPage() {
             ) : analytics ? (
               <AnalyticsContent selectedEventData={selectedEventData} analytics={analytics} registrations={registrations} />
             ) : (
-              <NoAnalyticsState />
+              <NoAnalyticsState selectedEventData={selectedEventData} />
             )}
 
           </div>
@@ -588,16 +608,39 @@ function EmptyState({ router }) {
   );
 }
 
-function NoAnalyticsState() {
+function NoAnalyticsState({ selectedEventData }) {
+  const isDraft = selectedEventData?.status === 'DRAFT';
+  const isPending = selectedEventData?.status === 'PENDING_APPROVAL';
+  const isRejected = selectedEventData?.status === 'REJECTED';
+  
+  let message = "This event may not have any registrations or data yet.";
+  let icon = "analytics_outline";
+  
+  if (isDraft) {
+    message = "Analytics are available after your event is approved. Please submit your event for approval first.";
+    icon = "edit_note";
+  } else if (isPending) {
+    message = "Analytics will be available once your event is approved by the admin.";
+    icon = "hourglass_empty";
+  } else if (isRejected) {
+    message = "Your event was rejected. Please update and resubmit for approval to access analytics.";
+    icon = "cancel";
+  }
+  
   return (
     <div className="text-center py-16 bg-card-background rounded-2xl border border-light-gray-border shadow-soft">
-      <span className="material-symbols-outlined text-7xl text-gray-300">analytics_outline</span>
+      <span className="material-symbols-outlined text-7xl text-gray-300">{icon}</span>
       <p className="text-lg font-semibold text-gray-700 mt-4">
         Analytics Not Available
       </p>
-      <p className="text-sm text-gray-700 mt-1">
-        This event may not have any registrations or data yet.
+      <p className="text-sm text-gray-700 mt-1 max-w-md mx-auto">
+        {message}
       </p>
+      {selectedEventData && (
+        <p className="text-xs text-gray-500 mt-3">
+          Current Status: <span className="font-medium">{selectedEventData.status?.replace(/_/g, ' ')}</span>
+        </p>
+      )}
     </div>
   );
 }
