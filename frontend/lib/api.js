@@ -1,13 +1,26 @@
 import axios from "axios";
 
+// ============================================
+// API CONFIGURATION
+// ============================================
+// To change the backend API URL, update NEXT_PUBLIC_API_URL in:
+// - .env.local (for local development)
+// - Vercel Dashboard > Settings > Environment Variables (for production)
+// ============================================
+
 // Determine API base URL based on environment
 const getBaseURL = () => {
+  // First priority: Use environment variable if set
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL;
+  }
+
+  // Fallback: Auto-detect based on hostname
   if (typeof window !== 'undefined') {
     const hostname = window.location.hostname;
     
     // Check if we're on localhost (desktop development)
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      // Desktop development - use local backend
       return "http://localhost:5000/api";
     }
     
@@ -17,7 +30,7 @@ const getBaseURL = () => {
     }
   }
 
-  // Production frontend always uses production backend
+  // Default production backend
   return "https://sgtu-event-backend.vercel.app/api";
 };
 

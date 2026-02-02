@@ -119,7 +119,7 @@ export default function AdminBulkRegistrationPage() {
         <main className="p-4 sm:p-6 md:ml-64 pt-16 sm:pt-20 pb-20 sm:pb-6">
           <div className="mb-6">
             <h1 className="text-2xl font-bold text-dark-text mb-2">Bulk Registration Approvals</h1>
-            <p className="text-gray-700">Review and approve bulk registration requests (>200 students)</p>
+            <p className="text-gray-700">Review and approve bulk registration requests (&gt;200 students)</p>
           </div>
 
           {loading ? (
