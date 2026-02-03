@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import api from "@/lib/api";
 import { useStudentAuth } from "@/hooks/useAuth";
@@ -9,36 +9,40 @@ import StudentHeader from "@/components/student/StudentHeader";
 import StudentMobileNav from "@/components/student/StudentMobileNav";
 import DeregisterModal from "@/components/student/DeregisterModal";
 
-export default function MyEventsPage() {
-  const { isAuthenticated, isChecking } = useStudentAuth();
-  const router = useRouter();
+// Separate component that uses useSearchParams
+function PaymentSuccessHandler({ onPaymentSuccess }) {
   const searchParams = useSearchParams();
-  const [theme, setTheme] = useState("light");
-  const [registrations, setRegistrations] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [showDeregisterModal, setShowDeregisterModal] = useState(false);
-  const [selectedRegistration, setSelectedRegistration] = useState(null);
-  const [showPaymentSuccess, setShowPaymentSuccess] = useState(false);
-
-  // Check for payment success from Razorpay redirect
+  
   useEffect(() => {
     const paymentStatus = searchParams.get('payment');
     const razorpayPaymentId = searchParams.get('razorpay_payment_id');
     
     if (paymentStatus === 'success' || razorpayPaymentId) {
       console.log("✅ Payment redirect detected!");
-      setShowPaymentSuccess(true);
+      onPaymentSuccess();
       
       // Show success message
       setTimeout(() => {
         alert("✅ Payment successful! Your registration is confirmed.");
-        setShowPaymentSuccess(false);
         
         // Clean URL
         window.history.replaceState({}, '', '/student/my-events');
       }, 500);
     }
-  }, [searchParams]);
+  }, [searchParams, onPaymentSuccess]);
+  
+  return null;
+}
+
+export default function MyEventsPage() {
+  const { isAuthenticated, isChecking } = useStudentAuth();
+  const router = useRouter();
+  const [theme, setTheme] = useState("light");
+  const [registrations, setRegistrations] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showDeregisterModal, setShowDeregisterModal] = useState(false);
+  const [selectedRegistration, setSelectedRegistration] = useState(null);
+  const [showPaymentSuccess, setShowPaymentSuccess] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem("theme") || "light";
@@ -110,6 +114,11 @@ export default function MyEventsPage() {
 
   return (
     <div className="bg-soft-background font-sans text-dark-text antialiased min-h-screen flex">
+      {/* Payment Success Handler wrapped in Suspense */}
+      <Suspense fallback={null}>
+        <PaymentSuccessHandler onPaymentSuccess={() => setShowPaymentSuccess(true)} />
+      </Suspense>
+      
       <StudentSidebar onLogout={handleLogout} />
 
       <div className="flex-1 flex flex-col">
