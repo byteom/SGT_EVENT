@@ -16,6 +16,7 @@ export default function StudentEventsPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState("ALL");
+  const [registrationFilter, setRegistrationFilter] = useState("ALL");
 
   useEffect(() => {
     const saved = localStorage.getItem("theme") || "light";
@@ -94,8 +95,18 @@ export default function StudentEventsPage() {
     const matchesSearch = event.event_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          event.event_code?.toLowerCase().includes(searchQuery.toLowerCase());
 
-    if (filterType === "ALL") return matchesSearch;
-    return event.event_type === filterType && matchesSearch;
+    // Event type filter (ALL, FREE, PAID)
+    let matchesType = true;
+    if (filterType === "FREE") matchesType = event.event_type === "FREE";
+    if (filterType === "PAID") matchesType = event.event_type === "PAID";
+
+    // Registration filter (ALL, REGISTERED, NOT_REGISTERED, CANCELLED)
+    let matchesRegistration = true;
+    if (registrationFilter === "REGISTERED") matchesRegistration = event.is_registered === true;
+    if (registrationFilter === "NOT_REGISTERED") matchesRegistration = event.is_registered !== true && event.registration_status !== 'CANCELLED';
+    if (registrationFilter === "CANCELLED") matchesRegistration = event.registration_status === 'CANCELLED';
+
+    return matchesSearch && matchesType && matchesRegistration;
   });
 
   return (
@@ -147,6 +158,16 @@ export default function StudentEventsPage() {
                 <option value="ALL">All Events</option>
                 <option value="FREE">Free Events</option>
                 <option value="PAID">Paid Events</option>
+              </select>
+              <select
+                value={registrationFilter}
+                onChange={(e) => setRegistrationFilter(e.target.value)}
+                className="px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-600"
+              >
+                <option value="ALL">All Status</option>
+                <option value="REGISTERED">Registered</option>
+                <option value="NOT_REGISTERED">Not Registered</option>
+                <option value="CANCELLED">Cancelled</option>
               </select>
             </div>
 
@@ -200,14 +221,35 @@ function EventCard({ event, onClick }) {
       ? "bg-green-100 text-green-700"
       : "bg-blue-100 text-blue-700";
   };
+  const isCancelled = event.registration_status === 'CANCELLED';
 
   return (
     <button
       onClick={onClick}
-      className="p-5 rounded-xl border border-gray-200 bg-white shadow-sm hover:shadow-md transition-all text-left group"
+      className={`p-5 rounded-xl border bg-white shadow-sm hover:shadow-md transition-all text-left group ${
+        isCancelled 
+          ? 'border-red-300 ring-1 ring-red-200' 
+          : event.is_registered 
+            ? 'border-green-300 ring-1 ring-green-200' 
+            : 'border-gray-200'
+      }`}
     >
       <div className="flex items-start justify-between mb-3">
         <div className="flex-1 min-w-0">
+          {/* Cancelled Tag */}
+          {isCancelled && (
+            <span className="inline-flex items-center gap-1 text-[10px] bg-red-500 text-white px-2 py-0.5 rounded font-medium mb-2">
+              <span className="material-symbols-outlined text-xs">cancel</span>
+              Cancelled
+            </span>
+          )}
+          {/* Registered Tag - Small inline badge */}
+          {!isCancelled && event.is_registered && (
+            <span className="inline-flex items-center gap-1 text-[10px] bg-green-500 text-white px-2 py-0.5 rounded font-medium mb-2">
+              <span className="material-symbols-outlined text-xs">check</span>
+              Registered
+            </span>
+          )}
           <h3 className="text-base font-semibold text-dark-text truncate group-hover:text-primary transition">
             {event.event_name}
           </h3>
@@ -229,7 +271,7 @@ function EventCard({ event, onClick }) {
         )}
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         <span className={`text-xs px-3 py-1 rounded-full font-medium ${getEventTypeColor(event.event_type)}`}>
           {event.event_type === "FREE" ? "Free Event" : `₹${event.price}`}
         </span>

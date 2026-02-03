@@ -2,6 +2,8 @@
 
 Backend API for SGTU Event Management System built with Node.js, Express, and PostgreSQL (Neon).
 
+> **Last Updated:** February 2, 2026 - CORS configuration updated
+
 ## 🚀 Quick Setup for New Developers
 
 ### Prerequisites

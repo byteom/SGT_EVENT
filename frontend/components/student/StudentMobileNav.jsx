@@ -9,7 +9,7 @@ export default function StudentMobileNav() {
   const items = [
     { icon: "home", label: "Home", path: "/student" },
     { icon: "event", label: "Events", path: "/student/events" },
-    { icon: "qr_code_2", label: "My QR", path: "/student/qr" },
+    { icon: "event_available", label: "My Events", path: "/student/my-events" },
     { icon: "person", label: "Profile", path: "/student/profile" },
   ];
 

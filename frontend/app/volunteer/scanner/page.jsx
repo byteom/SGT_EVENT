@@ -25,6 +25,12 @@ export default function VolunteerScannerPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const cleanupInProgressRef = useRef(false);
 
+  // Event time validation
+  const [assignedEvents, setAssignedEvents] = useState([]);
+  const [activeEvent, setActiveEvent] = useState(null);
+  const [eventTimeError, setEventTimeError] = useState(null);
+  const [checkingEventTime, setCheckingEventTime] = useState(true);
+
   // Success overlay state
   const [showSuccess, setShowSuccess] = useState(false);
   const [successData, setSuccessData] = useState(null);
@@ -67,6 +73,68 @@ export default function VolunteerScannerPage() {
     });
   };
 
+  /* CHECK EVENT TIME VALIDATION */
+  const checkEventTimeValidation = async () => {
+    try {
+      setCheckingEventTime(true);
+      const token = localStorage.getItem("token");
+      const res = await api.get("/volunteer/assigned-events", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.data?.success) {
+        const events = res.data.data?.events || [];
+        setAssignedEvents(events);
+        
+        // Check if any event is currently active (between start_date and end_date)
+        const now = new Date();
+        const currentlyActiveEvent = events.find(event => {
+          const startDate = new Date(event.start_date);
+          const endDate = new Date(event.end_date);
+          return now >= startDate && now <= endDate;
+        });
+
+        if (currentlyActiveEvent) {
+          setActiveEvent(currentlyActiveEvent);
+          setEventTimeError(null);
+          setCheckingEventTime(false);
+          return true; // Event is active, allow scanner
+        } else {
+          // Check if event hasn't started yet or has ended
+          const futureEvent = events.find(event => new Date(event.start_date) > now);
+          const pastEvent = events.find(event => new Date(event.end_date) < now);
+          
+          let errorMessage = "No active event right now";
+          if (futureEvent) {
+            const startDate = new Date(futureEvent.start_date);
+            errorMessage = `Event "${futureEvent.event_name}" will start on ${startDate.toLocaleDateString()} at ${startDate.toLocaleTimeString()}`;
+          } else if (pastEvent) {
+            errorMessage = `All assigned events have ended. Scanner is not available.`;
+          } else {
+            errorMessage = "You are not assigned to any events. Please contact event manager.";
+          }
+          
+          setEventTimeError(errorMessage);
+          setActiveEvent(null);
+          setCheckingEventTime(false);
+          return false; // No active event, block scanner
+        }
+      }
+    } catch (error) {
+      console.error("Failed to check event time:", error);
+      setEventTimeError("Failed to verify event timing. Please check your internet connection.");
+      setCheckingEventTime(false);
+      return false;
+    }
+  };
+
+  /* CHECK EVENT TIME ON MOUNT */
+  useEffect(() => {
+    if (!isChecking && isAuthenticated) {
+      checkEventTimeValidation();
+    }
+  }, [isChecking, isAuthenticated]);
+
   /* LOAD HTML5-QRCODE LIBRARY */
   const loadScript = (src) => {
     return new Promise((resolve, reject) => {
@@ -90,6 +158,17 @@ export default function VolunteerScannerPage() {
     const initCameras = async () => {
       if (initAttempted) return;
       initAttempted = true;
+
+      // CRITICAL: Check if event is active before initializing camera
+      if (checkingEventTime) {
+        console.log("⏳ Waiting for event time validation...");
+        return;
+      }
+
+      if (eventTimeError || !activeEvent) {
+        console.log("🚫 Scanner blocked - no active event");
+        return;
+      }
 
       try {
         // Wait for page to fully mount (prevents navigation issues)
@@ -318,7 +397,7 @@ export default function VolunteerScannerPage() {
         });
       }
     };
-  }, []);
+  }, [checkingEventTime, eventTimeError, activeEvent]); // Re-run when event validation completes
 
   /* CLEANUP SCANNER HELPER */
   const cleanupScanner = async () => {
@@ -935,6 +1014,90 @@ export default function VolunteerScannerPage() {
 
       {/* MOBILE NAV */}
       <VolunteerMobileNav />
+      
+      {/* EVENT TIME ERROR MODAL */}
+      {(eventTimeError || checkingEventTime) && (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-card-background rounded-3xl p-8 max-w-md w-full shadow-2xl">
+            {checkingEventTime ? (
+              <>
+                {/* Loading State */}
+                <div className="flex justify-center mb-6">
+                  <div className="w-20 h-20 rounded-full flex items-center justify-center bg-blue-100">
+                    <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary border-t-transparent"></div>
+                  </div>
+                </div>
+                <h2 className="text-2xl font-bold text-center mb-2 text-dark-text">
+                  Checking Event Status
+                </h2>
+                <p className="text-center text-gray-700 text-sm mb-4">
+                  Please wait while we verify event timing...
+                </p>
+              </>
+            ) : (
+              <>
+                {/* Error State */}
+                <div className="flex justify-center mb-6">
+                  <div className="w-20 h-20 rounded-full flex items-center justify-center bg-yellow-100">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="w-12 h-12 text-yellow-600"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                    >
+                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" />
+                    </svg>
+                  </div>
+                </div>
+                
+                <h2 className="text-2xl font-bold text-center mb-2 text-dark-text">
+                  Scanner Not Available
+                </h2>
+                
+                <div className="bg-yellow-50 border-2 border-yellow-300 rounded-2xl p-4 mb-6">
+                  <p className="text-center text-gray-800 text-sm font-medium">
+                    {eventTimeError}
+                  </p>
+                </div>
+
+                {activeEvent === null && assignedEvents.length > 0 && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
+                    <p className="text-xs text-gray-700 font-semibold mb-2">Your Assigned Events:</p>
+                    {assignedEvents.map((event) => (
+                      <div key={event.event_id} className="text-xs text-gray-700 mb-1">
+                        <span className="font-medium">{event.event_name}</span>
+                        <br />
+                        <span className="text-gray-600">
+                          {new Date(event.start_date).toLocaleString()} - {new Date(event.end_date).toLocaleString()}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => router.push("/volunteer")}
+                    className="flex-1 py-3 bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold rounded-xl transition"
+                  >
+                    Go to Dashboard
+                  </button>
+                  <button
+                    onClick={() => {
+                      setEventTimeError(null);
+                      setCheckingEventTime(true);
+                      checkEventTimeValidation();
+                    }}
+                    className="flex-1 py-3 bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl transition"
+                  >
+                    Retry
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
       
       {/* SUCCESS OVERLAY - Fast inline notification */}
       {showSuccess && successData && (

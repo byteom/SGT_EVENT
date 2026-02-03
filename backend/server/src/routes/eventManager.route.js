@@ -433,4 +433,42 @@ router.post('/events/:eventId/bulk-cancel',
   EventManagerController.bulkCancelRegistrations
 );
 
+// ============================================================
+// ATTENDANCE TRACKING ROUTES
+// ============================================================
+
+/**
+ * @route   GET /api/event-manager/events/:eventId/attendance
+ * @desc    Get comprehensive event attendance data with filters
+ * @access  Private (EVENT_MANAGER - owner only)
+ * @query   status=checked_in|checked_out|not_attended, search=, school_id=, has_feedback=true|false, sort_by=check_in_time|feedback_count|name, page=1, limit=50
+ * @returns { attendance_data[], summary, school_breakdown[], pagination, filters_applied }
+ * @note    Shows who attended, who didn't, check-in/out times, feedback stats
+ */
+router.get('/events/:eventId/attendance',
+  EventManagerController.getEventAttendance
+);
+
+/**
+ * @route   GET /api/event-manager/events/:eventId/attendance/:studentId
+ * @desc    Get detailed attendance timeline for specific student
+ * @access  Private (EVENT_MANAGER - owner only)
+ * @returns { student, attendance_summary, check_in_out_history[], feedback_history[] }
+ * @note    Complete timeline with durations, volunteer names, feedback details
+ */
+router.get('/events/:eventId/attendance/:studentId',
+  EventManagerController.getStudentAttendanceDetail
+);
+
+/**
+ * @route   GET /api/event-manager/events/:eventId/attendance/export
+ * @desc    Export attendance data to Excel
+ * @access  Private (EVENT_MANAGER - owner only)
+ * @returns Excel file with complete attendance data
+ * @note    Includes registration, check-in/out times, feedback counts
+ */
+router.get('/events/:eventId/attendance/export',
+  EventManagerController.exportAttendance
+);
+
 export default router;

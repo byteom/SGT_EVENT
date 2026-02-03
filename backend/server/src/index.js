@@ -12,34 +12,11 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // ============================================
-// CORS CONFIGURATION
+// CORS CONFIGURATION - OPEN (NO RESTRICTIONS)
 // ============================================
-// To update allowed origins, change CORS_ORIGINS in .env file
-// Format: comma-separated URLs (e.g., http://localhost:3000,https://your-app.vercel.app)
+// WARNING: This allows ALL origins. Use only for testing!
+// For production, set specific domains in CORS_ORIGINS env variable
 // ============================================
-const getAllowedOrigins = () => {
-  const defaultOrigins = [
-    'http://localhost:3000',
-    'https://fmx4mbdb-3000.inc1.devtunnels.ms',
-    'https://fmx4mbdb-5000.inc1.devtunnels.ms'
-  ];
-
-  // Parse CORS_ORIGINS from env (comma-separated)
-  const envOrigins = process.env.CORS_ORIGINS 
-    ? process.env.CORS_ORIGINS.split(',').map(url => url.trim())
-    : [];
-
-  // Add CLIENT_URL if set
-  if (process.env.CLIENT_URL) {
-    envOrigins.push(process.env.CLIENT_URL);
-  }
-
-  // Combine and remove duplicates
-  const allOrigins = [...new Set([...defaultOrigins, ...envOrigins])].filter(Boolean);
-  
-  console.log('🔐 CORS Allowed Origins:', allOrigins);
-  return allOrigins;
-};
 
 // Trust proxy for rate limiting (needed for X-Forwarded-For header from devtunnels/proxies)
 app.set('trust proxy', 1);
@@ -47,9 +24,10 @@ app.set('trust proxy', 1);
 // Middleware
 app.use(helmet());
 app.use(cors({
-  origin: getAllowedOrigins(),
+  origin: true, // Allow ALL origins
   credentials: true // Enable cookies and authentication headers
 }));
+console.log('🌍 CORS: Allowing ALL origins (open mode)');
 app.use(compression());
 app.use(cookieParser()); // Parse cookies
 app.use(express.json());

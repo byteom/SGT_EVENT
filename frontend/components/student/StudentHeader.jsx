@@ -12,7 +12,6 @@ export default function StudentHeader({ theme, toggleTheme, onLogout, title }) {
 
   const titles = {
     "/student": "Welcome, Student!",
-    "/student/qr": "My QR Code",
     "/student/profile": "My Profile",
     "/student/my-visits": "My Visits",
     "/student/feedback": "Stall Feedback",

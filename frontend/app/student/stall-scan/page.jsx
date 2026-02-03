@@ -10,6 +10,36 @@ import StudentHeader from "@/components/student/StudentHeader";
 import StudentMobileNav from "@/components/student/StudentMobileNav";
 
 export default function StallScanPage() {
+  // Add custom styles for centering the scanner video
+  useEffect(() => {
+    const style = document.createElement('style');
+    style.textContent = `
+      #stall-qr-reader {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+      }
+      #stall-qr-reader video {
+        width: 100% !important;
+        height: 100% !important;
+        object-fit: cover !important;
+        border-radius: 0 !important;
+      }
+      #stall-qr-reader__scan_region {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+      }
+      #stall-qr-reader__dashboard_section_csr {
+        display: none !important;
+      }
+    `;
+    document.head.appendChild(style);
+    
+    return () => {
+      document.head.removeChild(style);
+    };
+  }, []);
   const { isAuthenticated, isChecking } = useStudentAuth();
   const router = useRouter();
   const [theme, setTheme] = useState("light");
@@ -529,161 +559,180 @@ export default function StallScanPage() {
   }
 
   return (
-    <div className="bg-soft-background font-sans text-dark-text antialiased min-h-screen flex">
-      {/* LEFT SIDEBAR */}
-      <StudentSidebar onLogout={handleLogout} />
+    <div className="flex bg-soft-background font-sans text-dark-text antialiased min-h-screen">
+      
+      {/* FIXED SIDEBAR */}
+      <div className="hidden lg:block fixed left-0 top-0 h-screen w-64">
+        <StudentSidebar onLogout={handleLogout} />
+      </div>
 
       {/* MAIN AREA */}
-      <div className="flex-1 flex flex-col">
-        {/* TOP HEADER */}
-        <StudentHeader
-          theme={theme}
-          toggleTheme={toggleTheme}
-          title="Scan Stall QR"
-          onLogout={handleLogout}
-        />
+      <div className="flex-1 lg:ml-64 flex flex-col min-h-screen">
+        
+        {/* FIXED HEADER */}
+        <div className="sticky top-0 z-40">
+          <StudentHeader
+            theme={theme}
+            toggleTheme={toggleTheme}
+            onLogout={handleLogout}
+          />
+        </div>
 
-        {/* BODY CONTENT */}
+        {/* SCROLLABLE CONTENT */}
         <main className="flex-1 overflow-y-auto p-4 pb-32 sm:p-6 lg:p-8 lg:pb-10">
-          <div className="max-w-3xl mx-auto">
+          <div className="max-w-2xl mx-auto space-y-6">
             
+            {/* Page Title */}
+            <div className="text-center">
+              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Scan Stall QR Code</h1>
+              <p className="text-gray-600 text-sm mt-2">Point camera at the stall's QR code</p>
+            </div>
+
             {/* Scanner Card */}
-            <div className="bg-white rounded-3xl shadow-2xl overflow-hidden border border-gray-200">
+            <div className="bg-white rounded-2xl shadow-lg overflow-hidden border border-gray-200">
               
-              {/* Header */}
-              <div className="bg-gradient-to-r from-primary to-primary/80 p-6 text-white">
+              {/* Header with Camera Switch */}
+              <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-4">
                 <div className="flex items-center justify-between">
-                  <div>
-                    <h1 className="text-2xl font-bold">Scan Stall QR</h1>
-                    <p className="text-sm opacity-90 mt-1">Point camera at stall QR code</p>
+                  <div className="flex items-center gap-3">
+                    <div className={`w-3 h-3 rounded-full ${
+                      status === "scanning" ? "bg-green-400 animate-pulse" :
+                      status === "processing" ? "bg-blue-400 animate-pulse" :
+                      status === "error" ? "bg-red-400" :
+                      "bg-yellow-400 animate-pulse"
+                    }`}></div>
+                    <div className="text-white">
+                      <p className="font-semibold text-sm">
+                        {status === "scanning" && "Ready to Scan"}
+                        {status === "processing" && "Processing..."}
+                        {status === "error" && "Camera Error"}
+                        {(status === "initializing" || status === "starting") && "Loading..."}
+                        {status === "switching" && "Switching Camera..."}
+                      </p>
+                    </div>
                   </div>
                   
                   {/* Camera Switch Button */}
                   {cameras.length > 1 && (
                     <button
                       onClick={switchCamera}
-                      disabled={status === "switching" || status === "processing"}
-                      className="p-3 bg-white/20 hover:bg-white/30 rounded-xl backdrop-blur-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={status === "switching" || status === "processing" || status === "error"}
+                      className="p-2 bg-white/20 hover:bg-white/30 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
                       title="Switch Camera"
                     >
-                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                      </svg>
+                      <span className="material-symbols-outlined text-white text-xl">cameraswitch</span>
                     </button>
                   )}
                 </div>
               </div>
 
               {/* Scanner Area */}
-              <div className="p-6">
-                <div className="relative bg-gray-900 rounded-2xl overflow-hidden" style={{ aspectRatio: "1" }}>
+              <div className="p-4">
+                <div className="relative bg-gray-900 rounded-xl overflow-hidden flex items-center justify-center" style={{ aspectRatio: "1", maxHeight: "400px" }}>
+                  
                   {/* Scanner div */}
-                  <div id="stall-qr-reader" className="w-full h-full"></div>
+                  <div id="stall-qr-reader" className="w-full h-full flex items-center justify-center"></div>
+                  
+                  {/* Scanning Frame Corners */}
+                  {status === "scanning" && (
+                    <>
+                      <div className="absolute top-4 left-4 w-8 h-8 border-l-3 border-t-3 border-green-400"></div>
+                      <div className="absolute top-4 right-4 w-8 h-8 border-r-3 border-t-3 border-green-400"></div>
+                      <div className="absolute bottom-4 left-4 w-8 h-8 border-l-3 border-b-3 border-green-400"></div>
+                      <div className="absolute bottom-4 right-4 w-8 h-8 border-r-3 border-b-3 border-green-400"></div>
+                    </>
+                  )}
                   
                   {/* Status Overlays */}
                   {status === "initializing" && (
-                    <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm flex items-center justify-center">
+                    <div className="absolute inset-0 bg-gray-900/90 backdrop-blur-sm flex items-center justify-center">
                       <div className="text-center text-white p-6">
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
-                        <p className="text-lg font-semibold">Initializing Camera...</p>
+                        <div className="animate-spin rounded-full h-12 w-12 border-3 border-blue-500 border-t-transparent mx-auto mb-3"></div>
+                        <p className="text-sm font-semibold">Initializing Camera...</p>
                       </div>
                     </div>
                   )}
                   
                   {status === "starting" && (
-                    <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm flex items-center justify-center">
+                    <div className="absolute inset-0 bg-gray-900/90 backdrop-blur-sm flex items-center justify-center">
                       <div className="text-center text-white p-6">
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
-                        <p className="text-lg font-semibold">Starting Scanner...</p>
+                        <div className="animate-spin rounded-full h-12 w-12 border-3 border-green-500 border-t-transparent mx-auto mb-3"></div>
+                        <p className="text-sm font-semibold">Starting Scanner...</p>
                       </div>
                     </div>
                   )}
                   
                   {status === "switching" && (
-                    <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm flex items-center justify-center">
+                    <div className="absolute inset-0 bg-gray-900/90 backdrop-blur-sm flex items-center justify-center">
                       <div className="text-center text-white p-6">
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
-                        <p className="text-lg font-semibold">Switching Camera...</p>
+                        <div className="animate-spin rounded-full h-12 w-12 border-3 border-purple-500 border-t-transparent mx-auto mb-3"></div>
+                        <p className="text-sm font-semibold">Switching Camera...</p>
                       </div>
                     </div>
                   )}
                   
                   {status === "processing" && (
-                    <div className="absolute inset-0 bg-green-600/90 backdrop-blur-sm flex items-center justify-center animate-fadeIn">
+                    <div className="absolute inset-0 bg-green-600/90 backdrop-blur-sm flex items-center justify-center">
                       <div className="text-center text-white p-6">
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
-                        <p className="text-lg font-semibold">Processing Scan...</p>
+                        <span className="material-symbols-outlined text-5xl mb-3">check_circle</span>
+                        <p className="text-lg font-bold">QR Code Detected!</p>
+                        <p className="text-xs mt-1">Processing...</p>
                       </div>
                     </div>
                   )}
                   
                   {status === "error" && (
-                    <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm flex items-center justify-center">
+                    <div className="absolute inset-0 bg-red-600/90 backdrop-blur-sm flex items-center justify-center">
                       <div className="text-center text-white p-6">
-                        <svg className="w-16 h-16 text-red-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                        </svg>
-                        <p className="text-lg font-semibold mb-2">Camera Error</p>
-                        <p className="text-sm opacity-80">{error || "Please check permissions"}</p>
+                        <span className="material-symbols-outlined text-5xl mb-3">error</span>
+                        <p className="text-lg font-bold mb-2">Camera Error</p>
+                        <p className="text-xs mb-4">{error || "Check permissions"}</p>
                         <button
                           onClick={() => window.location.reload()}
-                          className="mt-4 px-6 py-2 bg-white text-gray-900 rounded-xl font-semibold hover:bg-gray-100 transition"
+                          className="px-4 py-2 bg-white text-red-600 rounded-lg font-semibold hover:bg-gray-100 transition text-sm"
                         >
-                          Refresh Page
+                          Reload Page
                         </button>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {status === "scanning" && (
-                    <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2">
-                      <div className="bg-green-500 text-white px-4 py-2 rounded-full text-sm font-semibold flex items-center gap-2 shadow-lg">
-                        <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
-                        Scanning...
                       </div>
                     </div>
                   )}
                 </div>
                 
-                {/* Info */}
-                <div className="mt-6 text-center">
-                  <p className="text-gray-700 text-sm">
-                    📱 Position the stall QR code within the frame
-                  </p>
-                  <p className="text-gray-700 text-xs mt-2">
-                    Make sure you are checked in at the event
+                {/* Instructions */}
+                <div className="mt-4 bg-blue-50 border border-blue-200 rounded-xl p-4">
+                  <p className="text-sm text-gray-700">
+                    <span className="font-semibold text-blue-700">💡 Tip:</span> Hold the QR code steady within the frame. Make sure you're checked in at the event first.
                   </p>
                 </div>
                 
                 {/* Error Alert */}
                 {error && status !== "error" && (
-                  <div className="mt-4 bg-red-50 border border-red-200 rounded-xl p-4">
-                    <p className="text-red-600 text-center text-sm">{error}</p>
+                  <div className="mt-4 bg-red-50 border border-red-200 rounded-xl p-3 flex items-center gap-2">
+                    <span className="material-symbols-outlined text-lg text-red-500">error</span>
+                    <p className="text-red-700 text-sm font-medium">{error}</p>
                   </div>
                 )}
                 
                 {/* Action Buttons */}
-                <div className="mt-6 space-y-3">
-                  {/* Camera Switch Button - Always show if cameras exist */}
-                  {cameras.length > 0 && (
+                <div className="mt-4 flex gap-3">
+                  {/* Camera Switch Button - Mobile Friendly */}
+                  {cameras.length > 1 && (
                     <button
                       onClick={switchCamera}
-                      disabled={cameras.length < 2 || status === "switching" || status === "processing" || status === "error"}
-                      className="w-full px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                      title={cameras.length < 2 ? "Only one camera available" : "Switch between front and back camera"}
+                      disabled={status === "switching" || status === "processing" || status === "error"}
+                      className="flex-1 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                     >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                      </svg>
-                      {cameras.length > 1 ? `Switch Camera (${cameras.length} available)` : `Camera (${cameras.length} found)`}
+                      <span className="material-symbols-outlined text-xl">cameraswitch</span>
+                      <span className="text-sm">Switch</span>
                     </button>
                   )}
                   
                   <button
                     onClick={() => router.push("/student/my-visits")}
-                    className="w-full px-6 py-3 bg-gray-500 hover:bg-gray-600 text-white font-semibold rounded-xl transition shadow-lg"
+                    className="flex-1 px-4 py-3 bg-gray-600 hover:bg-gray-700 text-white font-semibold rounded-xl transition shadow-md flex items-center justify-center gap-2"
                   >
-                    View My Feedback
+                    <span className="material-symbols-outlined text-xl">rate_review</span>
+                    <span className="text-sm">My Feedback</span>
                   </button>
                 </div>
               </div>
@@ -691,10 +740,10 @@ export default function StallScanPage() {
 
           </div>
         </main>
-      </div>
 
-      {/* MOBILE NAV */}
-      <StudentMobileNav />
+        {/* MOBILE NAV */}
+        <StudentMobileNav />
+      </div>
     </div>
   );
 }

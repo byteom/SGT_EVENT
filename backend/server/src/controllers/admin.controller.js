@@ -1405,9 +1405,9 @@ const bulkUploadStudents = async (req, res, next) => {
         success: false,
         message: 'Validation failed. Please fix errors in Excel file and try again.',
         data: {
-          totalRows: validationResult.totalRows,
-          validRows: validationResult.validRows,
-          invalidRows: validationResult.invalidRows,
+          total_rows: validationResult.totalRows,
+          valid_rows: validationResult.validRows,
+          invalid_rows: validationResult.invalidRows,
           errors: validationResult.errors.slice(0, 50), // Limit to first 50 errors
         },
         timestamp: new Date().toISOString(),
@@ -1444,8 +1444,8 @@ const bulkUploadStudents = async (req, res, next) => {
         success: false,
         message: `Found ${invalidSchoolIds.length} invalid school ID(s). Please verify school IDs and try again.`,
         data: {
-          totalRows: validationResult.totalRows,
-          invalidSchoolIds,
+          total_rows: validationResult.totalRows,
+          invalid_school_ids: invalidSchoolIds,
           errors: invalidSchoolErrors.slice(0, 50),
         },
         timestamp: new Date().toISOString(),
@@ -1486,9 +1486,10 @@ const bulkUploadStudents = async (req, res, next) => {
     return successResponse(
       res,
       {
-        totalRows: bulkResult.total,
-        successful: bulkResult.inserted,
-        failed: bulkResult.failed,
+        total_rows: bulkResult.total,
+        created_count: bulkResult.inserted,
+        updated_count: 0, // Currently not updating existing records
+        skipped_count: bulkResult.failed,
         duration: `${duration} seconds`,
         errors: bulkResult.errors,
       },
@@ -1584,9 +1585,9 @@ const validateStudentUpload = async (req, res, next) => {
         message: 'Validation completed with errors',
         data: {
           valid: false,
-          totalRows: validationResult.totalRows,
-          validRows: validationResult.validRows,
-          invalidRows: validationResult.invalidRows,
+          total_rows: validationResult.totalRows,
+          valid_rows: validationResult.validRows,
+          invalid_rows: validationResult.invalidRows,
           errors: validationResult.errors.slice(0, 100), // Return first 100 errors
           summary: `Found ${validationResult.invalidRows} error(s) in ${validationResult.totalRows} row(s)`,
         },
@@ -1598,8 +1599,8 @@ const validateStudentUpload = async (req, res, next) => {
       res,
       {
         valid: true,
-        totalRows: validationResult.totalRows,
-        validRows: validationResult.validRows,
+        total_rows: validationResult.totalRows,
+        valid_rows: validationResult.validRows,
         message: 'All rows are valid! Ready to upload.',
       },
       'Validation successful'
@@ -1615,8 +1616,12 @@ const validateStudentUpload = async (req, res, next) => {
  */
 const downloadStudentTemplate = async (req, res, next) => {
   try {
-    // Generate template
-    const templateBuffer = await generateStudentTemplate();
+    // Fetch schools from database to provide valid school_ids
+    const schoolsQuery = 'SELECT id, school_name FROM schools ORDER BY school_name LIMIT 20';
+    const schools = await query(schoolsQuery);
+
+    // Generate template with actual school data
+    const templateBuffer = await generateStudentTemplate(schools);
 
     // Set response headers for file download
     res.setHeader(

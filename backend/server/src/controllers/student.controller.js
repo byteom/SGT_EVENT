@@ -159,6 +159,72 @@ const getQRCode = async (req, res, next) => {
 };
 
 /**
+ * Get event-specific QR code for a registered event
+ * @route GET /api/student/events/:eventId/qr-code
+ * @description
+ * Generates an event-specific QR code for students to use for check-in/check-out
+ * at that particular event. This replaces the global QR code system.
+ */
+const getEventQRCode = async (req, res, next) => {
+  try {
+    const { eventId } = req.params;
+    
+    // Find student
+    const student = await Student.findById(req.user.id, query);
+    if (!student) {
+      return errorResponse(res, 'Student not found', 404);
+    }
+
+    // Verify student is registered for this event
+    const registration = await EventRegistrationModel.findByEventAndStudent(eventId, student.id);
+    if (!registration) {
+      return errorResponse(res, 'You are not registered for this event', 403);
+    }
+
+    // For paid events, verify payment is completed
+    if (registration.registration_type === 'PAID' && registration.payment_status !== 'COMPLETED') {
+      return errorResponse(res, 'Payment pending for this event', 402);
+    }
+
+    // Get event details
+    const event = await EventModel.findById(eventId);
+    if (!event) {
+      return errorResponse(res, 'Event not found', 404);
+    }
+
+    // Generate rotating token (JWT string ~140 chars) with event context
+    const token = QRCodeService.generateRotatingStudentToken(student);
+    
+    // Generate rotating QR code image (Base64 PNG)
+    const qrCodeImage = await QRCodeService.generateRotatingQRCodeImage(student);
+
+    // Calculate rotation metadata for frontend
+    const rotationInfo = {
+      expires_in_seconds: QRCodeService.getSecondsUntilRotation(),
+      rotation_interval: QRCodeService.ROTATION_INTERVAL_SECONDS,
+      grace_period_seconds: QRCodeService.GRACE_PERIOD_WINDOWS * QRCodeService.ROTATION_INTERVAL_SECONDS
+    };
+
+    return successResponse(res, {
+      qr_code: qrCodeImage,
+      qr_code_token: token,
+      registration_no: student.registration_no,
+      event: {
+        id: event.id,
+        event_name: event.event_name,
+        event_code: event.event_code,
+        venue: event.venue,
+        start_date: event.start_date,
+        end_date: event.end_date
+      },
+      rotation_info: rotationInfo
+    }, 'Event QR code generated successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Get student check-in history
  * @route GET /api/student/check-in-history
  */
@@ -409,53 +475,61 @@ const submitFeedback = async (req, res, next) => {
  */
 const getMyVisits = async (req, res, next) => {
   try {
-    const feedbacks = await Feedback.findByStudent(req.user.id, query);
-    
-    const feedbackCount = feedbacks.length;
+    const studentId = req.user.id;
 
-    // Get current event stats if checked in
-    let currentEventStats = null;
-    const activeCheckInResult = await query(
-      `SELECT event_id FROM check_in_outs 
-       WHERE student_id = $1 AND scan_type = 'CHECKIN' 
-       ORDER BY scanned_at DESC LIMIT 1`,
-      [req.user.id]
-    );
+    // 1) Count distinct events where student was checked in (by volunteer)
+    const checkInQuery = `
+      SELECT DISTINCT event_id 
+      FROM check_in_outs 
+      WHERE student_id = $1 AND scan_type = 'CHECKIN'
+    `;
+    const checkInResults = await query(checkInQuery, [studentId]);
+    const totalEventVisits = checkInResults.length;
 
-    if (activeCheckInResult && activeCheckInResult.length > 0) {
-      const currentEventId = activeCheckInResult[0].event_id;
-      const stallCount = await Stall.countByEvent(currentEventId, query);
-      const eventFeedbackCount = await Feedback.countByStudentAndEvent(req.user.id, currentEventId, query);
-      
-      // Get event details
-      const eventResult = await query(
-        'SELECT id, event_name, event_code FROM events WHERE id = $1',
-        [currentEventId]
-      );
+    // 2) Count total feedbacks given (across all events)
+    const totalFeedbacksQuery = `
+      SELECT COUNT(*) as count 
+      FROM feedbacks 
+      WHERE student_id = $1
+    `;
+    const feedbackResults = await query(totalFeedbacksQuery, [studentId]);
+    const totalFeedbacks = parseInt(feedbackResults[0]?.count) || 0;
 
-      currentEventStats = {
-        event_id: currentEventId,
-        event_name: eventResult[0]?.event_name || null,
-        event_code: eventResult[0]?.event_code || null,
-        total_stalls: stallCount,
-        feedbacks_given: eventFeedbackCount,
-        feedbacks_remaining: stallCount - eventFeedbackCount
-      };
-    }
+    // 3) Get detailed visit information for each event checked into
+    const visitsQuery = `
+      SELECT DISTINCT ON (c.event_id)
+        c.event_id,
+        e.event_name,
+        e.start_date,
+        e.end_date,
+        c.scanned_at as check_in_time,
+        (
+          SELECT COUNT(*) 
+          FROM feedbacks f 
+          WHERE f.student_id = c.student_id 
+            AND f.event_id = c.event_id
+        ) as feedback_count
+      FROM check_in_outs c
+      LEFT JOIN events e ON c.event_id = e.id
+      WHERE c.student_id = $1 AND c.scan_type = 'CHECKIN'
+      ORDER BY c.event_id, c.scanned_at DESC
+    `;
+    const visitsResults = await query(visitsQuery, [studentId]);
+
+    // Build array of event visits
+    const visits = visitsResults.map(visit => ({
+      event_id: visit.event_id,
+      event_name: visit.event_name,
+      check_in_time: visit.check_in_time,
+      start_date: visit.start_date,
+      end_date: visit.end_date,
+      feedback_count: parseInt(visit.feedback_count) || 0
+    }));
 
     return successResponse(res, {
-      total_visits: feedbackCount,
-      current_event_stats: currentEventStats,
-      visits: feedbacks.map(f => ({
-        stall_id: f.stall_id,
-        stall_number: f.stall_number,
-        stall_name: f.stall_name,
-        school_name: f.school_name,
-        rating: f.rating,
-        comment: f.comment,
-        visited_at: f.submitted_at,
-        event_id: f.event_id
-      }))
+      total_event_visits: totalEventVisits, // number of events checked into
+      total_feedbacks: totalFeedbacks, // total feedbacks given across all events
+      visits // list of events visited with check-in time and feedback counts
     });
   } catch (error) {
     next(error);
@@ -973,9 +1047,14 @@ const getAvailableEvents = async (req, res, next) => {
           studentId
         );
         
+        // Only mark as registered if status is CONFIRMED (not CANCELLED or PENDING)
+        const isConfirmedRegistration = registration && 
+          registration.registration_status === 'CONFIRMED' &&
+          registration.payment_status !== 'PENDING';
+        
         return {
           ...event,
-          is_registered: !!registration,
+          is_registered: isConfirmedRegistration,
           registration_status: registration ? registration.registration_status : null,
           payment_status: registration ? registration.payment_status : null
         };
@@ -1016,12 +1095,22 @@ const getEventDetails = async (req, res, next) => {
       studentId
     );
 
+    // Only mark as registered if status is CONFIRMED (not CANCELLED or PENDING)
+    const isConfirmedRegistration = registration && 
+      registration.registration_status === 'CONFIRMED' &&
+      registration.payment_status !== 'PENDING';
+
     // Check registration status
     const registrationStatus = await EventModel.isRegistrationOpen(eventId);
 
     return successResponse(res, {
-      event,
-      is_registered: !!registration,
+      event: {
+        ...event,
+        is_registered: isConfirmedRegistration,
+        registration_status: registration ? registration.registration_status : null,
+        payment_status: registration ? registration.payment_status : null
+      },
+      is_registered: isConfirmedRegistration,
       registration: registration || null,
       registration_open: registrationStatus.open,
       registration_message: registrationStatus.reason || 'Registration is open'
@@ -1278,6 +1367,89 @@ const verifyPayment = async (req, res, next) => {
 };
 
 /**
+ * Check payment status from Razorpay API and complete registration if paid
+ * This is a fallback when JavaScript callback doesn't work
+ * @route POST /api/student/events/:eventId/payment/check-status
+ */
+const checkPaymentStatus = async (req, res, next) => {
+  try {
+    const { eventId } = req.params;
+    const { order_id } = req.body;
+    const studentId = req.user.id;
+
+    console.log(`🔍 [CHECK STATUS] Checking payment status for order: ${order_id}`);
+
+    if (!order_id) {
+      return errorResponse(res, 'Order ID is required', 400);
+    }
+
+    // Find registration by order ID
+    const registration = await EventRegistrationModel.findByOrderId(order_id);
+    if (!registration) {
+      return errorResponse(res, 'Registration not found for this order', 404);
+    }
+
+    // Check ownership
+    if (registration.student_id !== studentId) {
+      return errorResponse(res, 'Unauthorized', 403);
+    }
+
+    // If already completed, return success
+    if (registration.payment_status === 'COMPLETED' && registration.registration_status === 'CONFIRMED') {
+      console.log(`✅ [CHECK STATUS] Registration already confirmed`);
+      return successResponse(res, { 
+        status: 'completed',
+        registration 
+      }, 'Registration already confirmed!');
+    }
+
+    // Fetch order status from Razorpay API
+    const orderDetails = await PaymentService.getOrderDetails(order_id);
+    console.log(`📋 [CHECK STATUS] Razorpay order status:`, orderDetails);
+
+    // Check if order is paid
+    if (orderDetails.status === 'paid' || orderDetails.amount_due === 0) {
+      console.log(`✅ [CHECK STATUS] Order is PAID! Completing registration...`);
+      
+      // Fetch payments for this order to get payment_id
+      const razorpay = PaymentService.getRazorpayInstance();
+      const payments = await razorpay.orders.fetchPayments(order_id);
+      
+      let paymentId = null;
+      if (payments && payments.items && payments.items.length > 0) {
+        // Get the successful payment
+        const successfulPayment = payments.items.find(p => p.status === 'captured') || payments.items[0];
+        paymentId = successfulPayment.id;
+      }
+
+      // Complete payment in database
+      const updated = await EventRegistrationModel.completePayment(registration.id, {
+        razorpay_payment_id: paymentId || 'verified_via_api',
+        razorpay_signature: 'verified_via_order_status'
+      });
+
+      console.log(`✅ [CHECK STATUS] Registration completed successfully!`);
+
+      return successResponse(res, { 
+        status: 'completed',
+        registration: updated 
+      }, 'Payment verified! Registration complete.');
+    }
+
+    // Order not yet paid
+    console.log(`⏳ [CHECK STATUS] Order not yet paid. Status: ${orderDetails.status}`);
+    return successResponse(res, { 
+      status: 'pending',
+      order_status: orderDetails.status 
+    }, 'Payment not yet completed');
+
+  } catch (error) {
+    console.error('Check payment status error:', error);
+    next(error);
+  }
+};
+
+/**
  * Get student's registered events
  * @route GET /api/student/my-events
  */
@@ -1299,17 +1471,15 @@ const getMyRegisteredEvents = async (req, res, next) => {
 
 /**
  * Cancel event registration (deregister from event)
+ * Simple version - shows refund info, cancels registration
+ * User can re-register later by paying again
  * @route POST /api/student/events/:eventId/deregister
  */
 const cancelEventRegistration = async (req, res, next) => {
   try {
     const { eventId } = req.params;
+    const { confirm_cancel } = req.body; // true to confirm cancellation
     const studentId = req.user.id;
-
-    // Import services
-    const { calculateRefund } = await import('../utils/refundCalculator.js');
-    const { promoteFromWaitlist } = await import('../services/waitlist.service.js');
-    const { pool } = await import('../config/db.js');
 
     // Find registration
     const registration = await EventRegistrationModel.getByStudentAndEvent(eventId, studentId);
@@ -1322,141 +1492,125 @@ const cancelEventRegistration = async (req, res, next) => {
       return errorResponse(res, 'Registration already cancelled', 400);
     }
 
-    // Check if registration is confirmed
-    if (registration.registration_status !== 'CONFIRMED') {
-      return errorResponse(res, 'Only confirmed registrations can be cancelled', 400);
-    }
-
     // Get event details
     const event = await EventModel.findById(eventId);
     if (!event) {
       return errorResponse(res, 'Event not found', 404);
     }
 
-    // Check if event already occurred
+    // Check if event already started
     if (new Date(event.start_date) < new Date()) {
-      return errorResponse(res, 'Cannot cancel registration for past events', 400);
+      return errorResponse(res, 'Cannot cancel registration for events that have already started', 400);
     }
 
-    await pool('BEGIN');
+    // Calculate refund info for paid events
+    let refundInfo = null;
+    if (event.event_type === 'PAID' && registration.payment_status === 'COMPLETED') {
+      const paidAmount = parseFloat(registration.amount_paid || event.price || 0);
+      
+      // Simple refund policy: 
+      // - More than 7 days before: 100% refund
+      // - 3-7 days before: 50% refund
+      // - Less than 3 days: No refund
+      const eventDate = new Date(event.start_date);
+      const now = new Date();
+      const daysUntilEvent = Math.ceil((eventDate - now) / (1000 * 60 * 60 * 24));
+      
+      let refundPercent = 0;
+      let refundReason = '';
+      
+      if (daysUntilEvent > 7) {
+        refundPercent = 100;
+        refundReason = 'Full refund (more than 7 days before event)';
+      } else if (daysUntilEvent >= 3) {
+        refundPercent = 50;
+        refundReason = '50% refund (3-7 days before event)';
+      } else {
+        refundPercent = 0;
+        refundReason = 'No refund (less than 3 days before event)';
+      }
+      
+      refundInfo = {
+        paid_amount: paidAmount,
+        refund_percent: refundPercent,
+        refund_amount: (paidAmount * refundPercent) / 100,
+        refund_reason: refundReason,
+        days_until_event: daysUntilEvent
+      };
+    }
 
-    try {
-      let refundInfo = null;
+    // If not confirmed, just return refund info (preview)
+    if (!confirm_cancel) {
+      return successResponse(res, {
+        preview: true,
+        event_name: event.event_name,
+        registration_status: registration.registration_status,
+        payment_status: registration.payment_status,
+        is_paid_event: event.event_type === 'PAID',
+        refund_info: refundInfo,
+        message: refundInfo 
+          ? `If you cancel, you will receive a ${refundInfo.refund_percent}% refund (₹${refundInfo.refund_amount})`
+          : 'This is a free event. You can cancel without any charges.'
+      }, 'Review cancellation details');
+    }
 
-      // Handle paid events
-      if (event.event_type === 'PAID' && registration.payment_status === 'COMPLETED') {
-        // Calculate refund eligibility
-        const refundCalculation = calculateRefund(event, new Date());
+    // Confirmed - proceed with cancellation
+    console.log(`📝 Cancelling registration ${registration.id} for student ${studentId}`);
 
-        if (!refundCalculation.eligible) {
-          await pool('ROLLBACK');
-          return errorResponse(res, refundCalculation.reason, 400);
-        }
-
-        // Process refund in database
-        await EventRegistrationModel.processRefund(
-          registration.id,
-          refundCalculation.amount,
-          refundCalculation.reason
-        );
-
-        // Process refund via Razorpay
-        const razorpayRefund = await PaymentService.processRefund({
+    // Process refund if applicable
+    let razorpayRefund = null;
+    if (refundInfo && refundInfo.refund_amount > 0 && registration.razorpay_payment_id) {
+      try {
+        razorpayRefund = await PaymentService.processRefund({
           payment_id: registration.razorpay_payment_id,
-          amount: refundCalculation.amount,
+          amount: refundInfo.refund_amount,
           notes: {
             reason: 'Student cancellation',
             student_id: studentId,
-            event_id: eventId
+            event_id: eventId,
+            refund_percent: refundInfo.refund_percent
           }
         });
-
-        refundInfo = {
-          refund_amount: refundCalculation.amount,
-          refund_percent: refundCalculation.percent,
-          refund_id: razorpayRefund.id,
-          razorpay_refund_id: razorpayRefund.id,
-          refund_status: razorpayRefund.status,
-          reason: refundCalculation.reason
-        };
-      } else {
-        // Cancel free event registration
-        await EventRegistrationModel.cancel(registration.id);
+        console.log(`✅ Refund processed: ${razorpayRefund.id}`);
+      } catch (refundError) {
+        console.error('Refund processing failed:', refundError);
+        // Continue with cancellation even if refund fails
+        // Admin can process refund manually
       }
-
-      // Promote from waitlist if capacity available
-      const waitlistResult = await promoteFromWaitlist(eventId, 1);
-
-      await pool('COMMIT');
-
-      const responseData = {
-        success: true,
-        message: event.event_type === 'PAID' && refundInfo 
-          ? `Registration cancelled with ${refundInfo.refund_percent}% refund`
-          : 'Registration cancelled successfully',
-        registration_id: registration.id,
-        event_name: event.event_name,
-        waitlist_promoted: waitlistResult.promoted_count,
-        ...refundInfo
-      };
-
-      return successResponse(res, responseData, 'Registration cancelled successfully');
-    } catch (error) {
-      await pool('ROLLBACK');
-      console.error('Cancellation error:', error);
-      throw error;
-    }
-  } catch (error) {
-    next(error);
-  }
-};
-
-/**
- * Get universal student QR code (works for ALL registered events)
- * @route GET /api/student/qr-code
- * 
- * UNIVERSAL QR CODE DESIGN:
- * - One rotating QR per student (based on registration_no)
- * - Works for ANY event student is registered for (free or paid)
- * - Volunteer specifies event during scanning (route parameter)
- * - Backend validates student registration for that specific event
- * - Simpler UX: Student shows ONE QR for all events
- */
-const getEventQRCode = async (req, res, next) => {
-  try {
-    const studentId = req.user.id;
-
-    // Get student details
-    const student = await Student.findById(studentId, query);
-
-    if (!student) {
-      return errorResponse(res, 'Student not found', 404);
     }
 
-    // Generate UNIVERSAL rotating QR code (no event_id needed)
-    // This QR works for ALL events the student is registered for
-    const qrImage = await QRCodeService.generateRotatingQRCodeImage(student);
+    // Update registration status to CANCELLED
+    await query(
+      `UPDATE event_registrations 
+       SET registration_status = 'CANCELLED', 
+           cancelled_at = NOW(),
+           refund_amount = $1,
+           refund_status = $2,
+           razorpay_refund_id = $3,
+           updated_at = NOW()
+       WHERE id = $4`,
+      [
+        refundInfo?.refund_amount || 0,
+        razorpayRefund ? 'PROCESSED' : (refundInfo?.refund_amount > 0 ? 'PENDING' : 'NOT_APPLICABLE'),
+        razorpayRefund?.id || null,
+        registration.id
+      ]
+    );
 
-    const secondsUntilRotation = QRCodeService.getSecondsUntilRotation();
+    console.log(`✅ Registration cancelled successfully`);
 
     return successResponse(res, {
-      qr_code: qrImage,
-      rotation_info: {
-        seconds_until_rotation: secondsUntilRotation,
-        rotation_interval_seconds: QRCodeService.ROTATION_INTERVAL_SECONDS,
-        grace_period_seconds: QRCodeService.GRACE_PERIOD_WINDOWS * QRCodeService.ROTATION_INTERVAL_SECONDS
-      },
-      student: {
-        registration_no: student.registration_no,
-        full_name: student.full_name
-      },
-      usage: {
-        type: 'UNIVERSAL',
-        description: 'This QR code works for ALL events you are registered for',
-        instructions: 'Show this QR code to volunteers at ANY event check-in'
-      }
-    }, 'Universal QR code generated successfully');
+      cancelled: true,
+      event_name: event.event_name,
+      refund_info: refundInfo,
+      razorpay_refund_id: razorpayRefund?.id || null,
+      message: refundInfo && refundInfo.refund_amount > 0
+        ? `Registration cancelled. Refund of ₹${refundInfo.refund_amount} will be processed within 5-7 business days.`
+        : 'Registration cancelled successfully.'
+    }, 'Registration cancelled');
+
   } catch (error) {
+    console.error('Cancel registration error:', error);
     next(error);
   }
 };
@@ -1750,6 +1904,7 @@ export default {
   registerForFreeEvent,
   initiatePaidEventPayment,
   verifyPayment,
+  checkPaymentStatus,
   getMyRegisteredEvents,
   cancelEventRegistration,
   getEventQRCode,

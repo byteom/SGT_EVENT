@@ -276,44 +276,51 @@ const scanStudentQR = async (req, res, next) => {
       console.log('✅ [SCAN] Volunteer:', volunteer.full_name, '| Location:', volunteer.assigned_location);
     }
 
-    // 🔒 CRITICAL: Multi-Event Context Validation (Security Layer)
+    // 🔒 CRITICAL: STRICT Multi-Event Context Validation (MANDATORY)
+    // ========================================================================
+    // New Rule: Volunteers MUST be assigned to an event to scan QR codes
+    // No more global scanning - every scan must be event-specific
+    // ========================================================================
     const volunteerAssignment = await EventVolunteerModel.findActiveAssignment(req.user.id);
-    let eventContext = null;
 
-    if (volunteerAssignment) {
-      console.log(`🎯 [SCAN] Volunteer assigned to event: ${volunteerAssignment.event_name} (${volunteerAssignment.event_type})`);
-      
-      // Verify student is registered for THIS specific event
-      const registration = await EventRegistrationModel.findByEventAndStudent(
-        volunteerAssignment.event_id,
-        student.id
+    if (!volunteerAssignment) {
+      console.log('❌ [SCAN] Volunteer has no active event assignment');
+      return errorResponse(res, 
+        'You are not assigned to any active event. Please contact your event manager.', 
+        403
       );
+    }
 
-      if (!registration) {
-        console.log(`❌ [SCAN] Student not registered for event: ${volunteerAssignment.event_name}`);
+    console.log(`🎯 [SCAN] Volunteer assigned to event: ${volunteerAssignment.event_name} (${volunteerAssignment.event_type})`);
+    
+    // Verify student is registered for THIS specific event
+    const registration = await EventRegistrationModel.findByEventAndStudent(
+      volunteerAssignment.event_id,
+      student.id
+    );
+
+    if (!registration) {
+      console.log(`❌ [SCAN] Student not registered for event: ${volunteerAssignment.event_name}`);
+      return errorResponse(res, 
+        `You are not registered for this event.`, 
+        403
+      );
+    }
+
+    // For paid events, verify payment is completed
+    if (registration.registration_type === 'PAID') {
+      if (registration.payment_status !== 'COMPLETED') {
+        console.log(`❌ [SCAN] Payment not completed for paid event`);
         return errorResponse(res, 
-          `Student is not registered for "${volunteerAssignment.event_name}". Please register first.`, 
-          403
+          `Payment pending for "${volunteerAssignment.event_name}". Amount: ${volunteerAssignment.currency} ${volunteerAssignment.price}`, 
+          402 // Payment Required
         );
       }
-
-      // For paid events, verify payment is completed
-      if (registration.registration_type === 'PAID') {
-        if (registration.payment_status !== 'COMPLETED') {
-          console.log(`❌ [SCAN] Payment not completed for paid event`);
-          return errorResponse(res, 
-            `Payment pending for "${volunteerAssignment.event_name}". Amount: ${volunteerAssignment.currency} ${volunteerAssignment.price}`, 
-            402 // Payment Required
-          );
-        }
-        console.log(`✅ [SCAN] Payment verified: ${registration.payment_status}`);
-      }
-
-      console.log(`✅ [SCAN] Student authorized for event: ${volunteerAssignment.event_name}`);
-      eventContext = volunteerAssignment;
-    } else {
-      console.log('ℹ️ [SCAN] No active event assignment - using legacy single-event mode');
+      console.log(`✅ [SCAN] Payment verified: ${registration.payment_status}`);
     }
+
+    console.log(`✅ [SCAN] Student authorized for event: ${volunteerAssignment.event_name}`);
+    const eventContext = volunteerAssignment;
 
     // 4️⃣ 🎯 SMART LOGIC: Determine action based on current status
     const isCurrentlyInside = student.is_inside_event;
@@ -337,16 +344,14 @@ const scanStudentQR = async (req, res, next) => {
       checkInOutRecord = await CheckInOut.create({
         student_id: student.id,
         volunteer_id: req.user.id,
-        event_id: eventContext?.event_id || null, // ✅ Add event context for multi-event tracking
+        event_id: eventContext.event_id, // ✅ MANDATORY event context
         scan_type: 'CHECKIN',
         scan_number: updatedStudent.total_scan_count,
         duration_minutes: null
       }, query);
       
       console.log('✅ [DB] Check-in record saved:', checkInOutRecord.id);
-      if (eventContext) {
-        console.log(`✅ [DB] Event context recorded: ${eventContext.event_name}`);
-      }
+      console.log(`✅ [DB] Event context recorded: ${eventContext.event_name}`);
       
     } else if (action === 'EXIT' && previousCheckInTime) {
       const MAX_DURATION_HOURS = 10;
@@ -370,16 +375,14 @@ const scanStudentQR = async (req, res, next) => {
       checkInOutRecord = await CheckInOut.create({
         student_id: student.id,
         volunteer_id: req.user.id,
-        event_id: eventContext?.event_id || null, // ✅ Add event context for multi-event tracking
+        event_id: eventContext.event_id, // ✅ MANDATORY event context
         scan_type: 'CHECKOUT',
         scan_number: updatedStudent.total_scan_count,
         duration_minutes: durationMinutes // Capped duration
       }, query);
       
       console.log('✅ [DB] Check-out record saved:', checkInOutRecord.id);
-      if (eventContext) {
-        console.log(`✅ [DB] Event context recorded: ${eventContext.event_name}`);
-      }
+      console.log(`✅ [DB] Event context recorded: ${eventContext.event_name}`);
       
       // Update total active duration with CAPPED duration
       await Student.updateActiveDuration(student.id, durationMinutes, query);
@@ -931,6 +934,38 @@ const resetToDefaultPassword = async (req, res, next) => {
   }
 };
 
+/**
+ * Admin/Manager change volunteer password to custom value
+ * @route POST /api/volunteer/:id/change-password
+ */
+const changeVolunteerPassword = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { new_password } = req.body;
+
+    if (!new_password) {
+      return errorResponse(res, 'New password is required', 400);
+    }
+
+    if (new_password.length < 6) {
+      return errorResponse(res, 'Password must be at least 6 characters', 400);
+    }
+
+    // Check if volunteer exists
+    const volunteer = await Volunteer.findById(id, query);
+    if (!volunteer) {
+      return errorResponse(res, 'Volunteer not found', 404);
+    }
+
+    // Update password (clears password_reset_required flag)
+    await Volunteer.changePassword(id, new_password, query);
+
+    return successResponse(res, null, 'Volunteer password changed successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
 export default {
   login,
   register,
@@ -950,5 +985,6 @@ export default {
   // Password management
   verifyIdentity,           // Verify identity with event_code + phone
   resetPassword,            // Reset password after verification
-  resetToDefaultPassword    // Admin resets to default password
+  resetToDefaultPassword,   // Admin resets to default password
+  changeVolunteerPassword   // Admin changes volunteer password to custom value
 };

@@ -16,8 +16,8 @@ export default function MyVisitsPage() {
   const [loading, setLoading] = useState(true);
 
   const [visits, setVisits] = useState([]);
-  const [totalVisits, setTotalVisits] = useState(0);
-  const [remainingFeedbacks, setRemainingFeedbacks] = useState(0);
+  const [totalEventVisits, setTotalEventVisits] = useState(0);
+  const [totalFeedbacks, setTotalFeedbacks] = useState(0);
 
   // ---------------------- THEME ----------------------
   useEffect(() => {
@@ -56,8 +56,8 @@ export default function MyVisitsPage() {
         });
 
         if (res.data?.success) {
-          setTotalVisits(res.data.data.total_visits);
-          setRemainingFeedbacks(res.data.data.remaining_feedbacks);
+          setTotalEventVisits(res.data.data.total_event_visits || 0);
+          setTotalFeedbacks(res.data.data.total_feedbacks || 0);
           setVisits(res.data.data.visits || []);
         }
       } catch (err) {
@@ -117,19 +117,19 @@ export default function MyVisitsPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
 
               <SummaryCard
-                title="Total Visits"
-                value={totalVisits}
+                title="Events Visited"
+                value={totalEventVisits}
                 icon="event_available"
                 iconColor="text-primary"
                 bgColor="bg-blue-100"
               />
 
               <SummaryCard
-                title="Pending Feedback"
-                value={remainingFeedbacks}
+                title="Total Feedback Given"
+                value={totalFeedbacks}
                 icon="rate_review"
-                iconColor="text-yellow-600"
-                bgColor="bg-yellow-100"
+                iconColor="text-green-600"
+                bgColor="bg-green-100"
               />
 
             </div>
@@ -137,11 +137,11 @@ export default function MyVisitsPage() {
             {/* VISITS LIST */}
             <div className="space-y-4">
               {visits.length === 0 && (
-                <p className="text-gray-700 text-lg">No visits yet.</p>
+                <p className="text-gray-700 text-lg">No event visits yet. Get checked in by a volunteer to start!</p>
               )}
 
-              {visits.map((stall, i) => (
-                <VisitCard key={i} stall={stall} />
+              {visits.map((event, i) => (
+                <EventVisitCard key={i} event={event} />
               ))}
             </div>
 
@@ -177,40 +177,35 @@ function SummaryCard({ title, value, icon, iconColor, bgColor }) {
   );
 }
 
-function VisitCard({ stall }) {
+function EventVisitCard({ event }) {
   return (
     <div className="bg-white border border-light-gray-border rounded-2xl p-6 shadow-soft hover:shadow-md transition">
 
       <div className="flex justify-between items-start">
-        <div>
-          <h2 className="text-xl font-semibold">{stall.stall_name}</h2>
-          <p className="text-sm text-gray-700 mt-1">{stall.school_name}</p>
-          <p className="text-sm text-primary font-semibold mt-1">
-            Stall #{stall.stall_number}
-          </p>
+        <div className="flex-1">
+          <h2 className="text-xl font-semibold text-gray-900">{event.event_name}</h2>
+          
+          <div className="mt-3 space-y-1">
+            <p className="text-sm text-gray-600 flex items-center gap-2">
+              <span className="material-symbols-outlined text-base text-primary">login</span>
+              Checked in: {new Date(event.check_in_time).toLocaleString()}
+            </p>
+            
+            {event.start_date && (
+              <p className="text-sm text-gray-600 flex items-center gap-2">
+                <span className="material-symbols-outlined text-base text-gray-500">calendar_today</span>
+                {new Date(event.start_date).toLocaleDateString()} - {new Date(event.end_date).toLocaleDateString()}
+              </p>
+            )}
+          </div>
         </div>
 
-        <div className="flex items-center gap-1">
-          {[...Array(5)].map((_, i) => (
-            <span
-              key={i}
-              className={`material-symbols-outlined ${
-                i < stall.rating ? "text-yellow-400" : "text-gray-300"
-              }`}
-            >
-              star
-            </span>
-          ))}
+        <div className="ml-4 text-center bg-green-50 rounded-xl px-4 py-3 border border-green-200">
+          <p className="text-2xl font-bold text-green-600">{event.feedback_count}</p>
+          <p className="text-xs text-gray-600 mt-1">Feedbacks</p>
         </div>
       </div>
 
-      {stall.comment && (
-        <p className="text-gray-700 mt-4 italic">“{stall.comment}”</p>
-      )}
-
-      <p className="text-xs text-gray-700 mt-3">
-        Visited at: {new Date(stall.visited_at).toLocaleString()}
-      </p>
     </div>
   );
 }

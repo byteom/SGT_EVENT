@@ -84,9 +84,9 @@ export default function AdminHome() {
       
       if (statsRes.data?.success) {
         setStats({
-          totalStudents: statsRes.data.data.totalStudents || 0,
-          totalVolunteers: statsRes.data.data.totalVolunteers || 0,
-          totalStalls: statsRes.data.data.totalStalls || stalls.length || 0,
+          totalStudents: statsRes.data.data.students?.total || 0,
+          totalVolunteers: statsRes.data.data.volunteers?.total || 0,
+          totalStalls: statsRes.data.data.stalls?.total || stalls.length || 0,
           totalSchools: uniqueSchools.size || 0,
           totalEvents: events.length,
           activeEvents: activeEvents,

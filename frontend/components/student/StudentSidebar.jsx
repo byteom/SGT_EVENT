@@ -13,7 +13,6 @@ export default function StudentSidebar({ onLogout }) {
     { label: "My Visits", icon: "confirmation_number", path: "/student/my-visits" },
     { label: "Stall Feedback", icon: "rate_review", path: "/student/stall-scan" },
     { label: "Stall Ranking", icon: "emoji_events", path: "/student/ranking" },
-    { label: "My QR Code", icon: "qr_code_2", path: "/student/qr" },
     { label: "Profile", icon: "person", path: "/student/profile" },
   ];
 

@@ -26,9 +26,8 @@ export default function VolunteerMobileNav() {
     bg-soft-background 
     border-t border-light-gray-border shadow-[0_-4px_12px_rgba(0,0,0,0.08)]">
 
-      <div className="grid grid-cols-3 gap-1 p-2 max-w-md mx-auto">
+      <div className="grid grid-cols-2 gap-1 p-2 max-w-md mx-auto">
         <NavBtn label="Home" icon="home" href="/volunteer" />
-        <NavBtn label="Scan" icon="qr_code_scanner" href="/volunteer/scanner" />
         <NavBtn label="Profile" icon="person" href="/volunteer/profile" />
       </div>
     </nav>
