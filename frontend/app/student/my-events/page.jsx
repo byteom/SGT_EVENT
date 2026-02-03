@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import api from "@/lib/api";
 import { useStudentAuth } from "@/hooks/useAuth";
 import StudentSidebar from "@/components/student/StudentSidebar";
@@ -12,11 +12,33 @@ import DeregisterModal from "@/components/student/DeregisterModal";
 export default function MyEventsPage() {
   const { isAuthenticated, isChecking } = useStudentAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [theme, setTheme] = useState("light");
   const [registrations, setRegistrations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showDeregisterModal, setShowDeregisterModal] = useState(false);
   const [selectedRegistration, setSelectedRegistration] = useState(null);
+  const [showPaymentSuccess, setShowPaymentSuccess] = useState(false);
+
+  // Check for payment success from Razorpay redirect
+  useEffect(() => {
+    const paymentStatus = searchParams.get('payment');
+    const razorpayPaymentId = searchParams.get('razorpay_payment_id');
+    
+    if (paymentStatus === 'success' || razorpayPaymentId) {
+      console.log("✅ Payment redirect detected!");
+      setShowPaymentSuccess(true);
+      
+      // Show success message
+      setTimeout(() => {
+        alert("✅ Payment successful! Your registration is confirmed.");
+        setShowPaymentSuccess(false);
+        
+        // Clean URL
+        window.history.replaceState({}, '', '/student/my-events');
+      }, 500);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     const saved = localStorage.getItem("theme") || "light";

@@ -18,6 +18,18 @@ export default function StudentEventDetailPage() {
   const [event, setEvent] = useState(null);
   const [loading, setLoading] = useState(true);
   const [registering, setRegistering] = useState(false);
+  const [paymentSuccess, setPaymentSuccess] = useState(false);
+
+  // Effect to handle redirect after payment success
+  useEffect(() => {
+    if (paymentSuccess) {
+      console.log("🚀 Payment success detected, redirecting...");
+      const redirectTimer = setTimeout(() => {
+        window.location.href = "/student/my-events";
+      }, 300);
+      return () => clearTimeout(redirectTimer);
+    }
+  }, [paymentSuccess]);
 
   useEffect(() => {
     const saved = localStorage.getItem("theme") || "light";
@@ -86,98 +98,126 @@ export default function StudentEventDetailPage() {
         const paymentData = response.data.data;
         console.log("Payment data:", paymentData);
 
+        // Wait for Razorpay to load with retry mechanism
+        let razorpayAttempts = 0;
+        const maxRazorpayAttempts = 10;
+        
+        while (typeof window.Razorpay === "undefined" && razorpayAttempts < maxRazorpayAttempts) {
+          console.log(`⏳ Waiting for Razorpay to load... attempt ${razorpayAttempts + 1}`);
+          await new Promise(resolve => setTimeout(resolve, 500));
+          razorpayAttempts++;
+        }
+
         // Check if Razorpay is loaded
         if (typeof window.Razorpay === "undefined") {
           alert("Payment gateway not loaded. Please refresh the page and try again.");
+          setRegistering(false);
           return;
         }
+
+        console.log("✅ Razorpay loaded successfully");
+
+        // Store order ID for polling
+        const orderId = paymentData.order.order_id;
+        let paymentCompleted = false;
+        let pollingInterval = null;
+        let pollCount = 0;
+        const maxPolls = 60; // 60 polls * 2 seconds = 2 minutes max
+
+        // Function to check payment status
+        const checkPaymentNow = async () => {
+          try {
+            console.log(`🔍 Checking payment status... (attempt ${pollCount + 1})`);
+            const checkRes = await api.post(`/student/events/${eventId}/payment/check-status`, {
+              order_id: orderId
+            });
+            
+            console.log("📋 Check status response:", checkRes.data);
+            
+            if (checkRes.data?.success && checkRes.data?.data?.status === 'completed') {
+              console.log("✅ Payment confirmed via Razorpay API check!");
+              paymentCompleted = true;
+              if (pollingInterval) clearInterval(pollingInterval);
+              
+              // Force redirect using multiple methods
+              alert("✅ Payment successful! Registration complete.");
+              
+              // Create hidden form and submit for guaranteed redirect
+              const form = document.createElement('form');
+              form.method = 'GET';
+              form.action = '/student/my-events';
+              const input = document.createElement('input');
+              input.type = 'hidden';
+              input.name = 'payment';
+              input.value = 'success';
+              form.appendChild(input);
+              document.body.appendChild(form);
+              form.submit();
+              
+              return true;
+            }
+            return false;
+          } catch (e) {
+            console.log("Check error:", e.response?.data || e.message);
+            return false;
+          }
+        };
+
+        // Start polling - checks Razorpay API directly via backend
+        const startPolling = () => {
+          console.log("🔄 Starting payment status polling with order:", orderId);
+          pollingInterval = setInterval(async () => {
+            if (paymentCompleted || pollCount >= maxPolls) {
+              clearInterval(pollingInterval);
+              return;
+            }
+            pollCount++;
+            await checkPaymentNow();
+          }, 2000); // Check every 2 seconds (faster)
+        };
 
         // Initialize Razorpay
         const options = {
           key: paymentData.razorpay_key,
-          amount: paymentData.order.amount * 100, // Razorpay expects amount in paise
+          amount: paymentData.order.amount * 100,
           currency: paymentData.order.currency,
           name: "SGT Event Portal",
           description: paymentData.event?.name || event.event_name,
-          order_id: paymentData.order.order_id,
-          handler: async (razorpayResponse) => {
-            // Verify payment
-            try {
-              console.log("🎉 Payment handler called!");
-              console.log("📋 Razorpay response:", razorpayResponse);
+          order_id: orderId,
+          
+          handler: function(razorpayResponse) {
+            console.log("🎉 Payment handler called!");
+            console.log("📋 Razorpay response:", razorpayResponse);
+            paymentCompleted = true;
+            
+            // Clear polling if running
+            if (pollingInterval) clearInterval(pollingInterval);
 
-              // Show processing message
-              setRegistering(true);
-
-              // Try to verify via backend endpoint
-              try {
-                console.log("📤 Sending verify request...");
-                const verifyRes = await api.post(`/student/events/${eventId}/payment/verify`, {
-                  razorpay_order_id: razorpayResponse.razorpay_order_id,
-                  razorpay_payment_id: razorpayResponse.razorpay_payment_id,
-                  razorpay_signature: razorpayResponse.razorpay_signature,
-                });
-
-                console.log("✅ Verify response:", verifyRes.data);
-
-                if (verifyRes.data?.success) {
-                  setRegistering(false);
-                  alert("✅ Payment successful! Registration complete.");
-                  console.log("🚀 Redirecting to my-events...");
-                  
-                  // Use window.location for reliable redirect in production
-                  window.location.href = "/student/my-events";
-                  return;
-                }
-              } catch (verifyError) {
-                console.log("❌ Verify endpoint error:", verifyError);
-                console.log("❌ Error status:", verifyError.response?.status);
-
-                // If verify endpoint returns 404, payment might be processed via webhook
-                if (verifyError.response?.status === 404) {
-                  console.log("⏳ Verify endpoint not available, checking registration status...");
-
-                  // Wait a bit for webhook to process
-                  await new Promise(resolve => setTimeout(resolve, 2000));
-
-                  // Poll the event details to check if registration succeeded
-                  let attempts = 0;
-                  const maxAttempts = 5;
-
-                  while (attempts < maxAttempts) {
-                    try {
-                      const eventCheck = await api.get(`/student/events/${eventId}`);
-                      if (eventCheck.data?.success && eventCheck.data.data?.event?.is_registered) {
-                        setRegistering(false);
-                        alert("✅ Payment successful! Registration complete.");
-                        window.location.href = "/student/my-events";
-                        return;
-                      }
-                      // Wait before next attempt
-                      await new Promise(resolve => setTimeout(resolve, 2000));
-                      attempts++;
-                    } catch (pollError) {
-                      console.error("Error polling registration status:", pollError);
-                      attempts++;
-                      await new Promise(resolve => setTimeout(resolve, 2000));
-                    }
-                  }
-
-                  // After polling, show success message with instruction
-                  setRegistering(false);
-                  alert("✅ Payment successful! Please check 'My Events' to confirm your registration.");
-                  window.location.href = "/student/my-events";
-                  return;
-                }
-
-                // For other errors, show error message
-                throw verifyError;
-              }
-            } catch (finalError) {
-              console.error("Payment verification error:", finalError);
-              setRegistering(false);
-              alert("❌ " + (finalError.response?.data?.message || "Payment verification failed. If payment was deducted, please check 'My Events' or contact support."));
-            }
+            // Verify payment in background
+            api.post(`/student/events/${eventId}/payment/verify`, {
+              razorpay_order_id: razorpayResponse.razorpay_order_id,
+              razorpay_payment_id: razorpayResponse.razorpay_payment_id,
+              razorpay_signature: razorpayResponse.razorpay_signature,
+            }).then(function() {
+              console.log("✅ Verification complete, redirecting...");
+            }).catch(function(err) {
+              console.log("Verify error (will still redirect):", err);
+            }).finally(function() {
+              // Show success and redirect
+              alert("✅ Payment successful! Redirecting...");
+              
+              // Force redirect using form submission
+              const form = document.createElement('form');
+              form.method = 'GET';
+              form.action = '/student/my-events';
+              const input = document.createElement('input');
+              input.type = 'hidden';
+              input.name = 'payment';
+              input.value = 'success';
+              form.appendChild(input);
+              document.body.appendChild(form);
+              form.submit();
+            });
           },
           prefill: {
             name: paymentData.student?.name || localStorage.getItem("student_name") || "",
@@ -188,15 +228,38 @@ export default function StudentEventDetailPage() {
             color: "#2563eb",
           },
           modal: {
-            ondismiss: function() {
-              console.log("⚠️ Payment modal closed/dismissed by user");
-              setRegistering(false);
-              // Check if payment was successful by refreshing the event details
-              fetchEventDetails();
+            ondismiss: async function() {
+              console.log("⚠️ Payment modal dismissed");
+              
+              // Clear polling
+              if (pollingInterval) clearInterval(pollingInterval);
+              
+              if (!paymentCompleted) {
+                // Do multiple checks with delays
+                console.log("🔍 Modal closed - starting aggressive payment checks...");
+                
+                for (let i = 0; i < 5; i++) {
+                  console.log(`🔍 Aggressive check ${i + 1}/5...`);
+                  const success = await checkPaymentNow();
+                  if (success) {
+                    return; // Redirect will happen in checkPaymentNow
+                  }
+                  // Wait 2 seconds before next check
+                  await new Promise(resolve => setTimeout(resolve, 2000));
+                }
+                
+                // If still not completed, show message
+                setRegistering(false);
+                console.log("⚠️ Payment not detected after checks");
+              }
             },
             confirm_close: true,
             escape: false,
+            backdropclose: false,
           },
+          notes: {
+            event_id: eventId
+          }
         };
 
         console.log("🚀 Opening Razorpay checkout with options:", options);
@@ -204,9 +267,13 @@ export default function StudentEventDetailPage() {
         
         razorpay.on('payment.failed', function(response) {
           console.log("❌ Payment failed:", response.error);
+          if (pollingInterval) clearInterval(pollingInterval);
           alert("Payment failed: " + response.error.description);
           setRegistering(false);
         });
+        
+        // Start polling before opening modal
+        startPolling();
         
         console.log("🔓 Calling razorpay.open()");
         razorpay.open();
@@ -381,19 +448,41 @@ export default function StudentEventDetailPage() {
                     </div>
                   )}
 
-                  {event.is_registered && (
-                    <div className="p-4 bg-green-50 border border-green-200 rounded-lg mb-4">
+                  {/* Cancelled Registration Banner */}
+                  {event.registration_status === 'CANCELLED' && (
+                    <div className="p-4 bg-red-50 border border-red-200 rounded-lg mb-4">
                       <div className="flex items-center gap-3">
-                        <span className="material-symbols-outlined text-green-600">check_circle</span>
-                        <span className="text-sm text-green-800 font-medium">
-                          You are already registered for this event
-                        </span>
+                        <span className="material-symbols-outlined text-red-600 text-2xl">cancel</span>
+                        <div>
+                          <span className="text-sm text-red-800 font-semibold block">
+                            ❌ You Cancelled This Registration
+                          </span>
+                          <span className="text-xs text-red-700">
+                            You can't register again. For more info, please contact the event organizer.
+                          </span>
+                        </div>
                       </div>
                     </div>
                   )}
 
-                  {/* Register Button */}
-                  {!event.is_registered && isRegistrationOpen() && !isEventFull() && (
+                  {event.is_registered && event.registration_status !== 'CANCELLED' && (
+                    <div className="p-4 bg-green-50 border border-green-200 rounded-lg mb-4">
+                      <div className="flex items-center gap-3">
+                        <span className="material-symbols-outlined text-green-600 text-2xl">verified</span>
+                        <div>
+                          <span className="text-sm text-green-800 font-semibold block">
+                            ✅ You are already registered for this event
+                          </span>
+                          <span className="text-xs text-green-700">
+                            Check "My Events" to view your registration details and QR code
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Register Button - Only for non-registered and non-cancelled users */}
+                  {!event.is_registered && event.registration_status !== 'CANCELLED' && isRegistrationOpen() && !isEventFull() && (
                     <button
                       onClick={event.event_type === "FREE" ? handleRegisterFree : handleInitiatePayment}
                       disabled={registering}
@@ -413,13 +502,20 @@ export default function StudentEventDetailPage() {
                     </button>
                   )}
 
-                  {event.is_registered && (
-                    <button
-                      onClick={() => router.push("/student/my-events")}
-                      className="w-full px-6 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition font-medium"
-                    >
-                      View My Registrations
-                    </button>
+                  {/* Already Registered - Show alternative actions */}
+                  {event.is_registered && event.registration_status !== 'CANCELLED' && (
+                    <div className="space-y-3">
+                      <button
+                        onClick={() => router.push("/student/my-events")}
+                        className="w-full px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium flex items-center justify-center gap-2"
+                      >
+                        <span className="material-symbols-outlined">confirmation_number</span>
+                        View My Registration & QR Code
+                      </button>
+                      <p className="text-center text-xs text-gray-500">
+                        You can view your event QR code and registration details in "My Events"
+                      </p>
+                    </div>
                   )}
                 </div>
               </>

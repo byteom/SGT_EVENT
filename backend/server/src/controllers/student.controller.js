@@ -1047,9 +1047,14 @@ const getAvailableEvents = async (req, res, next) => {
           studentId
         );
         
+        // Only mark as registered if status is CONFIRMED (not CANCELLED or PENDING)
+        const isConfirmedRegistration = registration && 
+          registration.registration_status === 'CONFIRMED' &&
+          registration.payment_status !== 'PENDING';
+        
         return {
           ...event,
-          is_registered: !!registration,
+          is_registered: isConfirmedRegistration,
           registration_status: registration ? registration.registration_status : null,
           payment_status: registration ? registration.payment_status : null
         };
@@ -1090,12 +1095,22 @@ const getEventDetails = async (req, res, next) => {
       studentId
     );
 
+    // Only mark as registered if status is CONFIRMED (not CANCELLED or PENDING)
+    const isConfirmedRegistration = registration && 
+      registration.registration_status === 'CONFIRMED' &&
+      registration.payment_status !== 'PENDING';
+
     // Check registration status
     const registrationStatus = await EventModel.isRegistrationOpen(eventId);
 
     return successResponse(res, {
-      event,
-      is_registered: !!registration,
+      event: {
+        ...event,
+        is_registered: isConfirmedRegistration,
+        registration_status: registration ? registration.registration_status : null,
+        payment_status: registration ? registration.payment_status : null
+      },
+      is_registered: isConfirmedRegistration,
       registration: registration || null,
       registration_open: registrationStatus.open,
       registration_message: registrationStatus.reason || 'Registration is open'
@@ -1352,6 +1367,89 @@ const verifyPayment = async (req, res, next) => {
 };
 
 /**
+ * Check payment status from Razorpay API and complete registration if paid
+ * This is a fallback when JavaScript callback doesn't work
+ * @route POST /api/student/events/:eventId/payment/check-status
+ */
+const checkPaymentStatus = async (req, res, next) => {
+  try {
+    const { eventId } = req.params;
+    const { order_id } = req.body;
+    const studentId = req.user.id;
+
+    console.log(`🔍 [CHECK STATUS] Checking payment status for order: ${order_id}`);
+
+    if (!order_id) {
+      return errorResponse(res, 'Order ID is required', 400);
+    }
+
+    // Find registration by order ID
+    const registration = await EventRegistrationModel.findByOrderId(order_id);
+    if (!registration) {
+      return errorResponse(res, 'Registration not found for this order', 404);
+    }
+
+    // Check ownership
+    if (registration.student_id !== studentId) {
+      return errorResponse(res, 'Unauthorized', 403);
+    }
+
+    // If already completed, return success
+    if (registration.payment_status === 'COMPLETED' && registration.registration_status === 'CONFIRMED') {
+      console.log(`✅ [CHECK STATUS] Registration already confirmed`);
+      return successResponse(res, { 
+        status: 'completed',
+        registration 
+      }, 'Registration already confirmed!');
+    }
+
+    // Fetch order status from Razorpay API
+    const orderDetails = await PaymentService.getOrderDetails(order_id);
+    console.log(`📋 [CHECK STATUS] Razorpay order status:`, orderDetails);
+
+    // Check if order is paid
+    if (orderDetails.status === 'paid' || orderDetails.amount_due === 0) {
+      console.log(`✅ [CHECK STATUS] Order is PAID! Completing registration...`);
+      
+      // Fetch payments for this order to get payment_id
+      const razorpay = PaymentService.getRazorpayInstance();
+      const payments = await razorpay.orders.fetchPayments(order_id);
+      
+      let paymentId = null;
+      if (payments && payments.items && payments.items.length > 0) {
+        // Get the successful payment
+        const successfulPayment = payments.items.find(p => p.status === 'captured') || payments.items[0];
+        paymentId = successfulPayment.id;
+      }
+
+      // Complete payment in database
+      const updated = await EventRegistrationModel.completePayment(registration.id, {
+        razorpay_payment_id: paymentId || 'verified_via_api',
+        razorpay_signature: 'verified_via_order_status'
+      });
+
+      console.log(`✅ [CHECK STATUS] Registration completed successfully!`);
+
+      return successResponse(res, { 
+        status: 'completed',
+        registration: updated 
+      }, 'Payment verified! Registration complete.');
+    }
+
+    // Order not yet paid
+    console.log(`⏳ [CHECK STATUS] Order not yet paid. Status: ${orderDetails.status}`);
+    return successResponse(res, { 
+      status: 'pending',
+      order_status: orderDetails.status 
+    }, 'Payment not yet completed');
+
+  } catch (error) {
+    console.error('Check payment status error:', error);
+    next(error);
+  }
+};
+
+/**
  * Get student's registered events
  * @route GET /api/student/my-events
  */
@@ -1373,17 +1471,15 @@ const getMyRegisteredEvents = async (req, res, next) => {
 
 /**
  * Cancel event registration (deregister from event)
+ * Simple version - shows refund info, cancels registration
+ * User can re-register later by paying again
  * @route POST /api/student/events/:eventId/deregister
  */
 const cancelEventRegistration = async (req, res, next) => {
   try {
     const { eventId } = req.params;
+    const { confirm_cancel } = req.body; // true to confirm cancellation
     const studentId = req.user.id;
-
-    // Import services
-    const { calculateRefund } = await import('../utils/refundCalculator.js');
-    const { promoteFromWaitlist } = await import('../services/waitlist.service.js');
-    const { pool } = await import('../config/db.js');
 
     // Find registration
     const registration = await EventRegistrationModel.getByStudentAndEvent(eventId, studentId);
@@ -1396,91 +1492,125 @@ const cancelEventRegistration = async (req, res, next) => {
       return errorResponse(res, 'Registration already cancelled', 400);
     }
 
-    // Check if registration is confirmed
-    if (registration.registration_status !== 'CONFIRMED') {
-      return errorResponse(res, 'Only confirmed registrations can be cancelled', 400);
-    }
-
     // Get event details
     const event = await EventModel.findById(eventId);
     if (!event) {
       return errorResponse(res, 'Event not found', 404);
     }
 
-    // Check if event already occurred
+    // Check if event already started
     if (new Date(event.start_date) < new Date()) {
-      return errorResponse(res, 'Cannot cancel registration for past events', 400);
+      return errorResponse(res, 'Cannot cancel registration for events that have already started', 400);
     }
 
-    await pool('BEGIN');
+    // Calculate refund info for paid events
+    let refundInfo = null;
+    if (event.event_type === 'PAID' && registration.payment_status === 'COMPLETED') {
+      const paidAmount = parseFloat(registration.amount_paid || event.price || 0);
+      
+      // Simple refund policy: 
+      // - More than 7 days before: 100% refund
+      // - 3-7 days before: 50% refund
+      // - Less than 3 days: No refund
+      const eventDate = new Date(event.start_date);
+      const now = new Date();
+      const daysUntilEvent = Math.ceil((eventDate - now) / (1000 * 60 * 60 * 24));
+      
+      let refundPercent = 0;
+      let refundReason = '';
+      
+      if (daysUntilEvent > 7) {
+        refundPercent = 100;
+        refundReason = 'Full refund (more than 7 days before event)';
+      } else if (daysUntilEvent >= 3) {
+        refundPercent = 50;
+        refundReason = '50% refund (3-7 days before event)';
+      } else {
+        refundPercent = 0;
+        refundReason = 'No refund (less than 3 days before event)';
+      }
+      
+      refundInfo = {
+        paid_amount: paidAmount,
+        refund_percent: refundPercent,
+        refund_amount: (paidAmount * refundPercent) / 100,
+        refund_reason: refundReason,
+        days_until_event: daysUntilEvent
+      };
+    }
 
-    try {
-      let refundInfo = null;
+    // If not confirmed, just return refund info (preview)
+    if (!confirm_cancel) {
+      return successResponse(res, {
+        preview: true,
+        event_name: event.event_name,
+        registration_status: registration.registration_status,
+        payment_status: registration.payment_status,
+        is_paid_event: event.event_type === 'PAID',
+        refund_info: refundInfo,
+        message: refundInfo 
+          ? `If you cancel, you will receive a ${refundInfo.refund_percent}% refund (₹${refundInfo.refund_amount})`
+          : 'This is a free event. You can cancel without any charges.'
+      }, 'Review cancellation details');
+    }
 
-      // Handle paid events
-      if (event.event_type === 'PAID' && registration.payment_status === 'COMPLETED') {
-        // Calculate refund eligibility
-        const refundCalculation = calculateRefund(event, new Date());
+    // Confirmed - proceed with cancellation
+    console.log(`📝 Cancelling registration ${registration.id} for student ${studentId}`);
 
-        if (!refundCalculation.eligible) {
-          await pool('ROLLBACK');
-          return errorResponse(res, refundCalculation.reason, 400);
-        }
-
-        // Process refund in database
-        await EventRegistrationModel.processRefund(
-          registration.id,
-          refundCalculation.amount,
-          refundCalculation.reason
-        );
-
-        // Process refund via Razorpay
-        const razorpayRefund = await PaymentService.processRefund({
+    // Process refund if applicable
+    let razorpayRefund = null;
+    if (refundInfo && refundInfo.refund_amount > 0 && registration.razorpay_payment_id) {
+      try {
+        razorpayRefund = await PaymentService.processRefund({
           payment_id: registration.razorpay_payment_id,
-          amount: refundCalculation.amount,
+          amount: refundInfo.refund_amount,
           notes: {
             reason: 'Student cancellation',
             student_id: studentId,
-            event_id: eventId
+            event_id: eventId,
+            refund_percent: refundInfo.refund_percent
           }
         });
-
-        refundInfo = {
-          refund_amount: refundCalculation.amount,
-          refund_percent: refundCalculation.percent,
-          refund_id: razorpayRefund.id,
-          razorpay_refund_id: razorpayRefund.id,
-          refund_status: razorpayRefund.status,
-          reason: refundCalculation.reason
-        };
-      } else {
-        // Cancel free event registration
-        await EventRegistrationModel.cancel(registration.id);
+        console.log(`✅ Refund processed: ${razorpayRefund.id}`);
+      } catch (refundError) {
+        console.error('Refund processing failed:', refundError);
+        // Continue with cancellation even if refund fails
+        // Admin can process refund manually
       }
-
-      // Promote from waitlist if capacity available
-      const waitlistResult = await promoteFromWaitlist(eventId, 1);
-
-      await pool('COMMIT');
-
-      const responseData = {
-        success: true,
-        message: event.event_type === 'PAID' && refundInfo 
-          ? `Registration cancelled with ${refundInfo.refund_percent}% refund`
-          : 'Registration cancelled successfully',
-        registration_id: registration.id,
-        event_name: event.event_name,
-        waitlist_promoted: waitlistResult.promoted_count,
-        ...refundInfo
-      };
-
-      return successResponse(res, responseData, 'Registration cancelled successfully');
-    } catch (error) {
-      await pool('ROLLBACK');
-      console.error('Cancellation error:', error);
-      throw error;
     }
+
+    // Update registration status to CANCELLED
+    await query(
+      `UPDATE event_registrations 
+       SET registration_status = 'CANCELLED', 
+           cancelled_at = NOW(),
+           refund_amount = $1,
+           refund_status = $2,
+           razorpay_refund_id = $3,
+           updated_at = NOW()
+       WHERE id = $4`,
+      [
+        refundInfo?.refund_amount || 0,
+        razorpayRefund ? 'PROCESSED' : (refundInfo?.refund_amount > 0 ? 'PENDING' : 'NOT_APPLICABLE'),
+        razorpayRefund?.id || null,
+        registration.id
+      ]
+    );
+
+    console.log(`✅ Registration cancelled successfully`);
+
+    return successResponse(res, {
+      cancelled: true,
+      event_name: event.event_name,
+      refund_info: refundInfo,
+      razorpay_refund_id: razorpayRefund?.id || null,
+      message: refundInfo && refundInfo.refund_amount > 0
+        ? `Registration cancelled. Refund of ₹${refundInfo.refund_amount} will be processed within 5-7 business days.`
+        : 'Registration cancelled successfully.'
+    }, 'Registration cancelled');
+
   } catch (error) {
+    console.error('Cancel registration error:', error);
     next(error);
   }
 };
@@ -1774,6 +1904,7 @@ export default {
   registerForFreeEvent,
   initiatePaidEventPayment,
   verifyPayment,
+  checkPaymentStatus,
   getMyRegisteredEvents,
   cancelEventRegistration,
   getEventQRCode,

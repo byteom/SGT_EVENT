@@ -80,6 +80,13 @@ router.post('/events/:eventId/payment/initiate', studentController.initiatePaidE
 router.post('/events/:eventId/payment/verify', studentController.verifyPayment);
 
 /**
+ * @route   POST /api/student/events/:eventId/payment/check-status
+ * @desc    Check payment status from Razorpay and complete registration if paid
+ * @access  Private (STUDENT)
+ */
+router.post('/events/:eventId/payment/check-status', studentController.checkPaymentStatus);
+
+/**
  * @route   POST /api/student/events/:eventId/deregister
  * @desc    Cancel event registration (deregister from event)
  * @access  Private (STUDENT)
