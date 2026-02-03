@@ -2493,20 +2493,58 @@ class EventManagerController {
       `;
       const feedbackRecords = await query(feedbackQuery, [studentId, eventId]);
 
-      // Calculate duration statistics
+      // Calculate duration statistics and format check-in/out history
       const durations = [];
+      const formattedHistory = [];
       let currentCheckIn = null;
+      let currentCheckInRecord = null;
 
-      for (const record of checkInOutRecords) {
+      for (let i = 0; i < checkInOutRecords.length; i++) {
+        const record = checkInOutRecords[i];
+        
         if (record.scan_type === 'CHECKIN') {
           currentCheckIn = new Date(record.scanned_at);
+          currentCheckInRecord = record;
         } else if (record.scan_type === 'CHECKOUT' && currentCheckIn) {
           const checkOut = new Date(record.scanned_at);
           const durationMs = checkOut - currentCheckIn;
           const durationMinutes = Math.floor(durationMs / (1000 * 60));
           durations.push(durationMinutes);
+          
+          // Add formatted check-in record with duration
+          if (currentCheckInRecord) {
+            formattedHistory.push({
+              action_type: 'CHECK_IN',
+              created_at: currentCheckInRecord.scanned_at,
+              volunteer_name: currentCheckInRecord.volunteer_name,
+              volunteer_email: currentCheckInRecord.volunteer_email,
+              duration_minutes: durationMinutes
+            });
+          }
+          
+          // Add formatted check-out record
+          formattedHistory.push({
+            action_type: 'CHECK_OUT',
+            created_at: record.scanned_at,
+            volunteer_name: record.volunteer_name,
+            volunteer_email: record.volunteer_email,
+            duration_minutes: null // Checkout doesn't have duration
+          });
+          
           currentCheckIn = null;
+          currentCheckInRecord = null;
         }
+      }
+
+      // If there's an ongoing check-in (not checked out yet)
+      if (currentCheckIn && currentCheckInRecord) {
+        formattedHistory.push({
+          action_type: 'CHECK_IN',
+          created_at: currentCheckInRecord.scanned_at,
+          volunteer_name: currentCheckInRecord.volunteer_name,
+          volunteer_email: currentCheckInRecord.volunteer_email,
+          duration_minutes: null // Still in progress
+        });
       }
 
       const totalDuration = durations.reduce((sum, d) => sum + d, 0);
@@ -2517,7 +2555,7 @@ class EventManagerController {
       return successResponse(res, {
         student: {
           id: student.id,
-          full_name: student.full_name,
+          student_name: student.full_name, // Changed from full_name to student_name
           registration_no: student.registration_no,
           email: student.email,
           phone: student.phone,
@@ -2531,11 +2569,11 @@ class EventManagerController {
           total_check_outs: checkInOutRecords.filter(r => r.scan_type === 'CHECKOUT').length,
           total_feedbacks: feedbackRecords.length,
           total_duration_minutes: totalDuration,
-          average_visit_duration_minutes: avgDuration,
+          average_duration_minutes: avgDuration, // Changed from average_visit_duration_minutes
           currently_checked_in: checkInOutRecords.length > 0 && 
             checkInOutRecords[checkInOutRecords.length - 1].scan_type === 'CHECKIN'
         },
-        check_in_out_history: checkInOutRecords,
+        check_in_out_history: formattedHistory, // Use formatted history
         feedback_history: feedbackRecords
       });
     } catch (error) {

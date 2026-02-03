@@ -8,7 +8,6 @@ import ExcelJS from 'exceljs';
 // Expected column headers in Excel file
 const REQUIRED_COLUMNS = [
   'registration_no',
-  'email',
   'full_name',
   'school_id',
   'date_of_birth',
@@ -16,9 +15,8 @@ const REQUIRED_COLUMNS = [
 ];
 
 const OPTIONAL_COLUMNS = [
+  'email',
   'phone',
-  'date_of_birth',
-  'pincode',
   'address',
   'program_name',
   'batch',
@@ -36,8 +34,13 @@ export const parseStudentFile = async (fileBuffer) => {
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(fileBuffer);
 
-    // Get first worksheet (assuming student data is in first sheet)
-    const worksheet = workbook.worksheets[0];
+    // Find the "Students" worksheet (template has Instructions, Schools, Students sheets)
+    let worksheet = workbook.getWorksheet('Students');
+    
+    // If "Students" sheet not found, use first sheet (for backward compatibility)
+    if (!worksheet) {
+      worksheet = workbook.worksheets[0];
+    }
 
     if (!worksheet) {
       throw new Error('Excel file is empty or has no worksheets');
@@ -52,12 +55,18 @@ export const parseStudentFile = async (fileBuffer) => {
       headers[colNumber - 1] = headerValue;
     });
 
+    // Debug: Log worksheet name and headers
+    console.log('📊 Parsing worksheet:', worksheet.name);
+    console.log('📋 Headers found:', headers);
+    console.log('✅ Required columns:', REQUIRED_COLUMNS);
+
     // Validate that all required columns exist
     const missingColumns = REQUIRED_COLUMNS.filter(
       (col) => !headers.includes(col)
     );
 
     if (missingColumns.length > 0) {
+      console.log('❌ Missing columns:', missingColumns);
       throw new Error(
         `Missing required columns: ${missingColumns.join(', ')}. Please ensure your Excel file has these column headers.`
       );
@@ -386,8 +395,17 @@ export const exportStudentsToExcel = async (students) => {
  * Generate Excel template for student bulk upload
  * @returns {Promise<Buffer>} - Excel file buffer
  */
-export const generateStudentTemplate = async () => {
+/**
+ * Generate Excel template for student bulk upload
+ * @param {Array} schools - Array of schools from database [{id, school_name}]
+ * @returns {Promise<Buffer>} - Excel file buffer
+ */
+export const generateStudentTemplate = async (schools = []) => {
   const workbook = new ExcelJS.Workbook();
+
+  // Get first school_id for sample data, or use placeholder
+  const defaultSchoolId = schools.length > 0 ? schools[0].id : '123e4567-e89b-12d3-a456-426614174000';
+  const defaultSchoolName = schools.length > 0 ? schools[0].school_name : 'Example School';
 
   // Create Instructions sheet
   const instructionsSheet = workbook.addWorksheet('Instructions');
@@ -403,18 +421,21 @@ export const generateStudentTemplate = async () => {
       '1. Fill the "Students" sheet with student data',
     ],
     [
-      '2. All fields marked with * are REQUIRED',
+      '2. Required fields: registration_no, full_name, school_id, date_of_birth, pincode',
     ],
     [
-      '3. Do NOT modify the column headers',
+      '3. Optional fields: email, phone, address, program_name, batch',
     ],
     [
-      '4. Use the correct school_id from the Schools sheet',
+      '4. Do NOT modify the column headers in Students sheet',
     ],
-    ['5. Date format: YYYY-MM-DD (e.g., 2005-05-15)'],
-    ['6. Phone: 10 digits only (e.g., 9876543210)'],
-    ['7. Pincode: 6 digits only (e.g., 110001)'],
-    ['8. Batch: Year between 2000-2035 (e.g., 2025)'],
+    [
+      '5. Use the correct school_id from the "Schools" sheet',
+    ],
+    ['6. Date format: YYYY-MM-DD (e.g., 2005-05-15)'],
+    ['7. Phone: 10 digits only (e.g., 9876543210)'],
+    ['8. Pincode: 6 digits only (e.g., 110001)'],
+    ['9. Batch: Year between 2000-2035 (e.g., 2025)'],
     [''],
     ['⚠️ IMPORTANT - Password Auto-Generation:'],
     ['Passwords are AUTO-GENERATED from date_of_birth + pincode'],
@@ -422,16 +443,16 @@ export const generateStudentTemplate = async () => {
     ['Students MUST reset password on first login using DOB and pincode'],
     [''],
     ['Field Descriptions:'],
-    ['* registration_no: Unique student registration number'],
-    ['  email: Student email address (optional)'],
-    ['* full_name: Student full name'],
-    ['* school_id: UUID of the school (see Schools sheet)'],
-    ['* date_of_birth: Birth date YYYY-MM-DD - REQUIRED for password'],
-    ['* pincode: 6-digit postal code - REQUIRED for password'],
-    ['  phone: 10-digit phone number (optional)'],
-    ['  address: Full address (optional)'],
-    ['  program_name: Course/Program name (optional)'],
-    ['  batch: Graduation year (optional)'],
+    ['registration_no: Unique student registration number (REQUIRED)'],
+    ['email: Student email address (optional)'],
+    ['full_name: Student full name (REQUIRED)'],
+    ['school_id: UUID of the school from Schools sheet (REQUIRED)'],
+    ['date_of_birth: Birth date YYYY-MM-DD (REQUIRED for password)'],
+    ['pincode: 6-digit postal code (REQUIRED for password)'],
+    ['phone: 10-digit phone number (optional)'],
+    ['address: Full address (optional)'],
+    ['program_name: Course/Program name (optional)'],
+    ['batch: Graduation year (optional)'],
   ]);
 
   // Style the instructions
@@ -439,28 +460,55 @@ export const generateStudentTemplate = async () => {
   instructionsSheet.getRow(3).font = { bold: true, size: 12 };
   instructionsSheet.getRow(14).font = { bold: true, size: 12 };
 
+  // Create Schools sheet with actual data from database
+  if (schools.length > 0) {
+    const schoolsSheet = workbook.addWorksheet('Schools');
+    schoolsSheet.columns = [
+      { header: 'school_id', key: 'id', width: 38 },
+      { header: 'school_name', key: 'school_name', width: 40 },
+    ];
+
+    // Add schools data
+    schools.forEach(school => {
+      schoolsSheet.addRow({
+        id: school.id,
+        school_name: school.school_name
+      });
+    });
+
+    // Style header
+    const schoolHeaderRow = schoolsSheet.getRow(1);
+    schoolHeaderRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    schoolHeaderRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF0066CC' },
+    };
+    schoolHeaderRow.alignment = { horizontal: 'center', vertical: 'middle' };
+  }
+
   // Create Students sheet
   const studentsSheet = workbook.addWorksheet('Students');
   studentsSheet.columns = [
-    { header: 'registration_no*', key: 'registration_no', width: 20 },
+    { header: 'registration_no', key: 'registration_no', width: 20 },
     { header: 'email', key: 'email', width: 30 },
-    { header: 'full_name*', key: 'full_name', width: 25 },
-    { header: 'school_id*', key: 'school_id', width: 38 },
-    { header: 'date_of_birth*', key: 'date_of_birth', width: 15 },
-    { header: 'pincode*', key: 'pincode', width: 10 },
+    { header: 'full_name', key: 'full_name', width: 25 },
+    { header: 'school_id', key: 'school_id', width: 38 },
+    { header: 'date_of_birth', key: 'date_of_birth', width: 15 },
+    { header: 'pincode', key: 'pincode', width: 10 },
     { header: 'phone', key: 'phone', width: 15 },
     { header: 'address', key: 'address', width: 40 },
     { header: 'program_name', key: 'program_name', width: 20 },
     { header: 'batch', key: 'batch', width: 11 },
   ];
 
-  // Add sample data rows
+  // Add sample data rows with ACTUAL school_id from database
   studentsSheet.addRows([
     {
       registration_no: '2025001',
       email: 'john.doe@example.com',
       full_name: 'John Doe',
-      school_id: '123e4567-e89b-12d3-a456-426614174000',
+      school_id: defaultSchoolId,
       date_of_birth: '2005-05-15',
       pincode: '110001',
       phone: '9876543210',
@@ -472,7 +520,7 @@ export const generateStudentTemplate = async () => {
       registration_no: '2025002',
       email: 'jane.smith@example.com',
       full_name: 'Jane Smith',
-      school_id: '123e4567-e89b-12d3-a456-426614174000',
+      school_id: defaultSchoolId,
       date_of_birth: '2006-08-22',
       pincode: '110002',
       phone: '9876543211',
@@ -484,7 +532,7 @@ export const generateStudentTemplate = async () => {
       registration_no: '2025003',
       email: 'robert.j@example.com',
       full_name: 'Robert Johnson',
-      school_id: '123e4567-e89b-12d3-a456-426614174000',
+      school_id: defaultSchoolId,
       date_of_birth: '2004-12-10',
       pincode: '110003',
       phone: '',
