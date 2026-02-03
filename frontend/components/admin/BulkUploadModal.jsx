@@ -240,9 +240,18 @@ export default function BulkUploadModal({ onClose, onSuccess }) {
                     <p className="font-medium text-red-600 mb-2">Errors Found:</p>
                     <div className="max-h-40 overflow-y-auto space-y-1">
                       {validationResult.errors.map((error, index) => (
-                        <p key={index} className="text-red-600 text-xs">
-                          Row {error.row}: {error.message}
-                        </p>
+                        <div key={index} className="text-red-600 text-xs">
+                          <p className="font-semibold">Row {error.row}:</p>
+                          {error.errors ? (
+                            <ul className="ml-4 list-disc">
+                              {error.errors.map((err, idx) => (
+                                <li key={idx}>{err.field}: {err.error}</li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="ml-4">{error.message || error.error}</p>
+                          )}
+                        </div>
                       ))}
                     </div>
                   </div>
