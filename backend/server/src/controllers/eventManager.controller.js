@@ -985,16 +985,18 @@ class EventManagerController {
         }
       };
 
-      // Get stall rankings
+      // Get stall rankings - count votes per stall from rankings table
       const rankingsQuery = `
-        SELECT r.stall_id, r.rank, r.total_votes, r.percentage,
+        SELECT r.stall_id, r.rank,
+               COUNT(*) as vote_count,
                s.stall_name, s.stall_number, s.image_url,
                sc.school_name
         FROM rankings r
         JOIN stalls s ON r.stall_id = s.id
         LEFT JOIN schools sc ON s.school_id = sc.id
         WHERE r.event_id = $1
-        ORDER BY r.rank ASC
+        GROUP BY r.stall_id, r.rank, s.stall_name, s.stall_number, s.image_url, sc.school_name
+        ORDER BY vote_count DESC, r.rank ASC
         LIMIT 10
       `;
       const rankingsResult = await query(rankingsQuery, [eventId]);
@@ -1005,8 +1007,8 @@ class EventManagerController {
         stall_image: r.image_url,
         school_name: r.school_name,
         rank: r.rank,
-        total_votes: parseInt(r.total_votes) || 0,
-        percentage: parseFloat(r.percentage) || 0
+        total_votes: parseInt(r.vote_count) || 0,
+        percentage: 0
       }));
 
       // Get detailed stall statistics
@@ -1015,20 +1017,18 @@ class EventManagerController {
           s.id, s.stall_name, s.stall_number, s.image_url,
           sc.school_name,
           COUNT(DISTINCT f.id) as total_feedbacks,
-          ROUND(AVG(f.rating), 2) as average_rating,
+          ROUND(AVG(f.rating)::numeric, 2) as average_rating,
           COUNT(CASE WHEN f.rating = 5 THEN 1 END) as rating_5,
           COUNT(CASE WHEN f.rating = 4 THEN 1 END) as rating_4,
           COUNT(CASE WHEN f.rating = 3 THEN 1 END) as rating_3,
           COUNT(CASE WHEN f.rating = 2 THEN 1 END) as rating_2,
           COUNT(CASE WHEN f.rating = 1 THEN 1 END) as rating_1,
-          r.rank as ranking_position,
-          r.total_votes as ranking_votes
+          (SELECT COUNT(*) FROM rankings rk WHERE rk.stall_id = s.id AND rk.event_id = $1) as ranking_votes
         FROM stalls s
         LEFT JOIN schools sc ON s.school_id = sc.id
         LEFT JOIN feedbacks f ON s.id = f.stall_id
-        LEFT JOIN rankings r ON s.id = r.stall_id AND r.event_id = $1
         WHERE s.event_id = $1 AND s.is_active = true
-        GROUP BY s.id, sc.school_name, r.rank, r.total_votes
+        GROUP BY s.id, sc.school_name
         ORDER BY s.stall_number ASC
       `;
       const stallsResult = await query(stallsQuery, [eventId]);
@@ -1047,22 +1047,21 @@ class EventManagerController {
           2: parseInt(st.rating_2) || 0,
           1: parseInt(st.rating_1) || 0
         },
-        ranking_position: st.ranking_position || null,
         ranking_votes: parseInt(st.ranking_votes) || 0
       }));
 
       // Get volunteer statistics with scan details
       const volunteersQuery = `
         SELECT 
-          v.id, v.volunteer_name, v.email, v.phone,
+          v.id, v.full_name as volunteer_name, v.email, v.phone,
           COUNT(DISTINCT cio.id) as total_scans,
-          COUNT(DISTINCT CASE WHEN cio.check_type = 'CHECK_IN' THEN cio.id END) as total_checkins,
-          COUNT(DISTINCT CASE WHEN cio.check_type = 'CHECK_OUT' THEN cio.id END) as total_checkouts,
-          MIN(cio.check_time) as first_scan_time,
-          MAX(cio.check_time) as last_scan_time
+          COUNT(DISTINCT CASE WHEN cio.scan_type = 'CHECK_IN' THEN cio.id END) as total_checkins,
+          COUNT(DISTINCT CASE WHEN cio.scan_type = 'CHECK_OUT' THEN cio.id END) as total_checkouts,
+          MIN(cio.scanned_at) as first_scan_time,
+          MAX(cio.scanned_at) as last_scan_time
         FROM volunteers v
         JOIN event_volunteers ev ON v.id = ev.volunteer_id
-        LEFT JOIN check_in_out cio ON v.id = cio.scanned_by_volunteer_id AND cio.event_id = $1
+        LEFT JOIN check_in_outs cio ON v.id = cio.volunteer_id AND cio.event_id = $1
         WHERE ev.event_id = $1
         GROUP BY v.id
         ORDER BY total_scans DESC
@@ -2692,6 +2691,107 @@ class EventManagerController {
       return res.send(buffer);
     } catch (error) {
       console.error('Export attendance error:', error);
+      return errorResponse(res, error.message, 500);
+    }
+  }
+
+  /**
+   * Get all feedbacks for a specific stall
+   * GET /api/event-manager/events/:eventId/stalls/:stallId/feedbacks
+   */
+  static async getStallFeedbacks(req, res) {
+    try {
+      const { eventId, stallId } = req.params;
+      const managerId = req.user.id;
+
+      // Check ownership
+      const event = await EventModel.findById(eventId);
+      if (!event) {
+        return errorResponse(res, 'Event not found', 404);
+      }
+
+      if (event.created_by_manager_id !== managerId) {
+        return errorResponse(res, 'Unauthorized access to this event', 403);
+      }
+
+      // Verify stall belongs to this event
+      const stallCheck = await query(`
+        SELECT st.id, st.stall_name, st.stall_number, st.location, sc.school_name
+        FROM stalls st
+        LEFT JOIN schools sc ON st.school_id = sc.id
+        WHERE st.id = $1 AND st.event_id = $2
+      `, [stallId, eventId]);
+
+      if (stallCheck.length === 0) {
+        return errorResponse(res, 'Stall not found or does not belong to this event', 404);
+      }
+
+      const stall = stallCheck[0];
+
+      // Get all feedbacks for this stall with student info
+      const feedbacksQuery = `
+        SELECT 
+          f.id as feedback_id,
+          f.rating,
+          f.comment,
+          f.submitted_at as feedback_date,
+          s.id as student_id,
+          s.full_name as student_name,
+          s.email as student_email,
+          s.registration_no,
+          sc.school_name as student_school
+        FROM feedbacks f
+        INNER JOIN students s ON f.student_id = s.id
+        LEFT JOIN schools sc ON s.school_id = sc.id
+        WHERE f.stall_id = $1
+        ORDER BY f.submitted_at DESC
+      `;
+      
+      const feedbacks = await query(feedbacksQuery, [stallId]);
+
+      // Calculate summary stats
+      const totalFeedbacks = feedbacks.length;
+      const avgRating = totalFeedbacks > 0 
+        ? (feedbacks.reduce((sum, f) => sum + f.rating, 0) / totalFeedbacks).toFixed(2)
+        : 0;
+      
+      const ratingDistribution = {
+        5: feedbacks.filter(f => f.rating === 5).length,
+        4: feedbacks.filter(f => f.rating === 4).length,
+        3: feedbacks.filter(f => f.rating === 3).length,
+        2: feedbacks.filter(f => f.rating === 2).length,
+        1: feedbacks.filter(f => f.rating === 1).length,
+      };
+
+      return successResponse(res, {
+        stall: {
+          id: stall.id,
+          stall_name: stall.stall_name,
+          stall_number: stall.stall_number,
+          location: stall.location,
+          school_name: stall.school_name
+        },
+        summary: {
+          total_feedbacks: totalFeedbacks,
+          average_rating: parseFloat(avgRating),
+          rating_distribution: ratingDistribution
+        },
+        feedbacks: feedbacks.map(f => ({
+          feedback_id: f.feedback_id,
+          student: {
+            id: f.student_id,
+            name: f.student_name,
+            email: f.student_email,
+            registration_no: f.registration_no,
+            school: f.student_school
+          },
+          rating: f.rating,
+          comment: f.comment,
+          date: f.feedback_date
+        }))
+      });
+    } catch (error) {
+      console.error('Get stall feedbacks error:', error);
       return errorResponse(res, error.message, 500);
     }
   }

@@ -308,6 +308,17 @@ router.delete('/events/:eventId/stalls/:stallId/delete',
 );
 
 /**
+ * @route   GET /api/event-manager/events/:eventId/stalls/:stallId/feedbacks
+ * @desc    Get all feedbacks for a specific stall with student details
+ * @access  Private (EVENT_MANAGER - owner only)
+ * @returns { stall, summary: { total_feedbacks, average_rating, rating_distribution }, feedbacks[] }
+ */
+router.get('/events/:eventId/stalls/:stallId/feedbacks',
+  validateEventOwnershipForViewOnly,
+  EventManagerController.getStallFeedbacks
+);
+
+/**
  * @route   POST /api/event-manager/events/:eventId/volunteers/create
  * @desc    Create volunteer for event (alias for POST /api/volunteer)
  * @access  Private (EVENT_MANAGER - owner only)

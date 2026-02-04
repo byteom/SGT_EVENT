@@ -320,10 +320,23 @@ const scanStall = async (req, res, next) => {
       return errorResponse(res, 'No active check-in found. Please check in first.', 403);
     }
 
-    const currentEventId = activeCheckInResult[0].event_id;
+    let currentEventId = activeCheckInResult[0].event_id;
 
-    // Validate stall belongs to current event
-    if (stall.event_id !== currentEventId) {
+    // If event_id is NULL in check_in record (legacy data), use the stall's event_id
+    // This is safe because student is already verified as inside the event
+    if (!currentEventId) {
+      console.log('[SCAN-STALL] Check-in event_id is NULL, using stall event_id as fallback');
+      currentEventId = stall.event_id;
+    }
+
+    // Validate stall belongs to current event (convert both to string for proper UUID comparison)
+    const stallEventId = stall.event_id ? String(stall.event_id) : null;
+    const checkedInEventId = currentEventId ? String(currentEventId) : null;
+    
+    console.log('[SCAN-STALL] Stall event_id:', stallEventId);
+    console.log('[SCAN-STALL] Student checked-in event_id:', checkedInEventId);
+    
+    if (stallEventId !== checkedInEventId) {
       return errorResponse(res, 'This stall does not belong to your current checked-in event', 403);
     }
 
@@ -399,7 +412,18 @@ const submitFeedback = async (req, res, next) => {
       return errorResponse(res, 'No active check-in found. Please check in first.', 403);
     }
 
-    const currentEventId = activeCheckInResult[0].event_id;
+    // Check if stall exists first (we need it for fallback event_id)
+    const stall = await Stall.findById(stall_id, query);
+    if (!stall) {
+      return errorResponse(res, 'Stall not found', 404);
+    }
+
+    // Get current event ID, fallback to stall's event_id if NULL (legacy data)
+    let currentEventId = activeCheckInResult[0].event_id;
+    if (!currentEventId) {
+      console.log('[SUBMIT-FEEDBACK] Check-in event_id is NULL, using stall event_id as fallback');
+      currentEventId = stall.event_id;
+    }
 
     // Get stall count for current event (dynamic limit)
     const stallCount = await Stall.countByEvent(currentEventId, query);
@@ -414,14 +438,11 @@ const submitFeedback = async (req, res, next) => {
       );
     }
 
-    // Check if stall exists
-    const stall = await Stall.findById(stall_id, query);
-    if (!stall) {
-      return errorResponse(res, 'Stall not found', 404);
-    }
-
-    // Validate stall belongs to current event
-    if (stall.event_id !== currentEventId) {
+    // Validate stall belongs to current event (convert both to string for proper UUID comparison)
+    const stallEventId = stall.event_id ? String(stall.event_id) : null;
+    const checkedInEventId = currentEventId ? String(currentEventId) : null;
+    
+    if (stallEventId !== checkedInEventId) {
       return errorResponse(res, 'This stall does not belong to your current checked-in event', 403);
     }
 
@@ -560,7 +581,56 @@ const getMySchoolStalls = async (req, res, next) => {
       return errorResponse(res, 'You must be checked in to view school stalls', 403);
     }
 
-    const currentEventId = activeCheckInResult[0].event_id;
+    let currentEventId = activeCheckInResult[0].event_id;
+    
+    // If event_id is NULL in check_in record (legacy data), try multiple fallbacks
+    if (!currentEventId) {
+      console.log('[MY-SCHOOL-STALLS] Check-in event_id is NULL, trying fallbacks...');
+      
+      // Fallback 1: Try feedbacks table FIRST (most reliable - student already gave feedback)
+      const feedbackResult = await query(
+        `SELECT event_id FROM feedbacks 
+         WHERE student_id = $1 AND event_id IS NOT NULL 
+         ORDER BY submitted_at DESC LIMIT 1`,
+        [req.user.id]
+      );
+      if (feedbackResult.length > 0) {
+        currentEventId = feedbackResult[0].event_id;
+        console.log('[MY-SCHOOL-STALLS] Found event_id from feedbacks:', currentEventId);
+      }
+      
+      // Fallback 2: Try stalls table (via school)
+      if (!currentEventId) {
+        const stallResult = await query(
+          `SELECT DISTINCT s.event_id FROM stalls s
+           WHERE s.school_id = $1 AND s.event_id IS NOT NULL AND s.is_active = true
+           LIMIT 1`,
+          [student.school_id]
+        );
+        if (stallResult.length > 0) {
+          currentEventId = stallResult[0].event_id;
+          console.log('[MY-SCHOOL-STALLS] Found event_id from stalls:', currentEventId);
+        }
+      }
+      
+      // Fallback 3: Try event_registrations
+      if (!currentEventId) {
+        const registrationResult = await query(
+          `SELECT event_id FROM event_registrations 
+           WHERE student_id = $1 AND registration_status = 'CONFIRMED' 
+           ORDER BY registered_at DESC LIMIT 1`,
+          [req.user.id]
+        );
+        if (registrationResult.length > 0) {
+          currentEventId = registrationResult[0].event_id;
+          console.log('[MY-SCHOOL-STALLS] Found event_id from event_registrations:', currentEventId);
+        }
+      }
+    }
+
+    if (!currentEventId) {
+      return errorResponse(res, 'Unable to determine your current event. Please contact support.', 403);
+    }
 
     // Check if student has already completed ranking for THIS event
     const rankingCompletionCheck = await query(
@@ -574,6 +644,19 @@ const getMySchoolStalls = async (req, res, next) => {
     }
 
     // Get ONLY school stalls where student gave feedback
+    // First, let's debug - check how many feedbacks student has given
+    const feedbackDebug = await query(
+      `SELECT f.id, f.stall_id, f.event_id, s.stall_name, s.school_id, s.event_id as stall_event_id
+       FROM feedbacks f 
+       LEFT JOIN stalls s ON f.stall_id = s.id
+       WHERE f.student_id = $1`,
+      [req.user.id]
+    );
+    console.log('[MY-SCHOOL-STALLS] Student feedbacks:', JSON.stringify(feedbackDebug, null, 2));
+    console.log('[MY-SCHOOL-STALLS] Current event_id:', currentEventId);
+    console.log('[MY-SCHOOL-STALLS] Student school_id:', student.school_id);
+
+    // Get ALL stalls where student gave feedback for this event (removed school restriction)
     const queryText = `
       SELECT 
         st.id as stall_id,
@@ -589,20 +672,19 @@ const getMySchoolStalls = async (req, res, next) => {
       INNER JOIN schools sc ON st.school_id = sc.id
       INNER JOIN feedbacks f ON st.id = f.stall_id 
         AND f.student_id = $1 
-        AND f.event_id = $2
-      WHERE st.school_id = $3 
-        AND st.event_id = $2 
+        AND (f.event_id = $2 OR f.event_id IS NULL)
+      WHERE st.event_id = $2 
         AND st.is_active = true
       ORDER BY st.stall_number ASC
     `;
 
-    const stalls = await query(queryText, [req.user.id, currentEventId, student.school_id]);
+    const stalls = await query(queryText, [req.user.id, currentEventId]);
 
     // Require minimum 3 feedbacks to enable ranking
     if (stalls.length < 3) {
       return errorResponse(
         res, 
-        `You need to submit feedback to at least 3 stalls from your school. Currently: ${stalls.length}/3. Please give feedback first.`, 
+        `You need to submit feedback to at least 3 stalls. Currently: ${stalls.length}/3. Please give feedback first.`, 
         400
       );
     }

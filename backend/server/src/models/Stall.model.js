@@ -23,6 +23,9 @@ class StallModel {
     this.updated_at = data.updated_at;
     // Join fields
     this.school_name = data.school_name;
+    // Computed fields from feedbacks
+    this.feedback_count = data.feedback_count || 0;
+    this.average_rating = data.average_rating || 0;
   }
 
   static async findAll(sql) {
@@ -39,7 +42,15 @@ class StallModel {
 
   static async findByEvent(eventId, sql) {
     const query = `
-      SELECT s.*, sc.school_name
+      SELECT s.*, sc.school_name,
+        COALESCE(
+          (SELECT COUNT(*) FROM feedbacks f WHERE f.stall_id = s.id),
+          0
+        )::INTEGER as feedback_count,
+        COALESCE(
+          (SELECT ROUND(AVG(f.rating)::numeric, 2) FROM feedbacks f WHERE f.stall_id = s.id),
+          0
+        )::FLOAT as average_rating
       FROM stalls s
       LEFT JOIN schools sc ON s.school_id = sc.id
       WHERE s.event_id = $1 AND s.is_active = true

@@ -955,7 +955,10 @@ function StallsTab({ stalls, eventId, onUpdate }) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showQRModal, setShowQRModal] = useState(false);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [selectedStall, setSelectedStall] = useState(null);
+  const [feedbackData, setFeedbackData] = useState(null);
+  const [loadingFeedbacks, setLoadingFeedbacks] = useState(false);
   const [qrCodeImage, setQRCodeImage] = useState(null);
   const [loadingQR, setLoadingQR] = useState(false);
   const [schools, setSchools] = useState([]);
@@ -1164,6 +1167,25 @@ function StallsTab({ stalls, eventId, onUpdate }) {
     }
   };
 
+  const handleViewFeedbacks = async (stall) => {
+    setSelectedStall(stall);
+    setShowFeedbackModal(true);
+    setLoadingFeedbacks(true);
+    setFeedbackData(null);
+    
+    try {
+      const response = await api.get(`/event-manager/events/${eventId}/stalls/${stall.id}/feedbacks`);
+      if (response.data?.success) {
+        setFeedbackData(response.data.data);
+      }
+    } catch (error) {
+      console.error("Error fetching feedbacks:", error);
+      alert("Failed to load feedbacks");
+    } finally {
+      setLoadingFeedbacks(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
@@ -1198,7 +1220,7 @@ function StallsTab({ stalls, eventId, onUpdate }) {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Code</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Location</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Points</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Scans</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Feedbacks</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Status</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Actions</th>
                 </tr>
@@ -1222,7 +1244,19 @@ function StallsTab({ stalls, eventId, onUpdate }) {
                       <span className="text-sm font-semibold text-primary">{stall.points_awarded || 0}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm text-gray-700">{stall.total_scans || 0}</span>
+                      <button
+                        onClick={() => handleViewFeedbacks(stall)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-lg transition group"
+                        title="View feedbacks"
+                      >
+                        <span className="material-symbols-outlined text-base">reviews</span>
+                        <span className="text-sm font-medium">{stall.feedback_count || 0}</span>
+                        {(stall.average_rating || 0) > 0 && (
+                          <span className="text-xs text-amber-600">
+                            ({stall.average_rating?.toFixed(1)}★)
+                          </span>
+                        )}
+                      </button>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`px-2 py-1 text-xs font-medium rounded-full ${
@@ -1561,6 +1595,153 @@ function StallsTab({ stalls, eventId, onUpdate }) {
                   setShowQRModal(false);
                   setSelectedStall(null);
                   setQRCodeImage(null);
+                }}
+                className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Feedback Details Modal */}
+      {showFeedbackModal && selectedStall && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-card-background p-6 rounded-xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-dark-text">Stall Feedbacks</h3>
+                <p className="text-sm text-gray-600">{selectedStall.stall_name}</p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowFeedbackModal(false);
+                  setSelectedStall(null);
+                  setFeedbackData(null);
+                }}
+                className="text-gray-400 hover:text-gray-600 transition"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            {loadingFeedbacks ? (
+              <div className="flex-1 flex items-center justify-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+              </div>
+            ) : feedbackData ? (
+              <>
+                {/* Summary Section */}
+                <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                  <div className="flex flex-wrap gap-4 items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center">
+                        <span className="text-xl font-bold text-amber-700">
+                          {feedbackData.summary.average_rating || 0}
+                        </span>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-amber-800">Average Rating</p>
+                        <div className="flex items-center gap-1">
+                          {[1, 2, 3, 4, 5].map((star) => (
+                            <span
+                              key={star}
+                              className={`text-lg ${
+                                star <= Math.round(feedbackData.summary.average_rating || 0)
+                                  ? 'text-amber-500'
+                                  : 'text-gray-300'
+                              }`}
+                            >
+                              ★
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-2xl font-bold text-amber-700">{feedbackData.summary.total_feedbacks}</p>
+                      <p className="text-xs text-amber-600">Total Feedbacks</p>
+                    </div>
+                  </div>
+                  
+                  {/* Rating Distribution */}
+                  <div className="mt-3 pt-3 border-t border-amber-200">
+                    <p className="text-xs font-medium text-amber-700 mb-2">Rating Distribution</p>
+                    <div className="grid grid-cols-5 gap-2 text-center">
+                      {[5, 4, 3, 2, 1].map((rating) => (
+                        <div key={rating} className="bg-white rounded px-2 py-1">
+                          <p className="text-xs text-gray-600">{rating}★</p>
+                          <p className="text-sm font-semibold text-amber-700">
+                            {feedbackData.summary.rating_distribution[rating] || 0}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Feedbacks List */}
+                <div className="flex-1 overflow-y-auto">
+                  {feedbackData.feedbacks.length > 0 ? (
+                    <div className="space-y-3">
+                      {feedbackData.feedbacks.map((feedback) => (
+                        <div
+                          key={feedback.feedback_id}
+                          className="p-4 bg-white border border-gray-200 rounded-lg hover:shadow-sm transition"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-semibold text-sm">
+                                {feedback.student.name?.charAt(0)?.toUpperCase() || 'S'}
+                              </div>
+                              <div>
+                                <p className="font-medium text-dark-text">{feedback.student.name}</p>
+                                <p className="text-xs text-gray-500">
+                                  {feedback.student.registration_no} • {feedback.student.school || 'N/A'}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1 bg-amber-50 px-2 py-1 rounded">
+                              <span className="text-amber-500 text-lg">★</span>
+                              <span className="font-semibold text-amber-700">{feedback.rating}</span>
+                            </div>
+                          </div>
+                          
+                          {feedback.comment && (
+                            <p className="mt-3 text-sm text-gray-700 bg-gray-50 p-3 rounded">
+                              "{feedback.comment}"
+                            </p>
+                          )}
+                          
+                          <p className="mt-2 text-xs text-gray-400">
+                            {new Date(feedback.date).toLocaleString()}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-12">
+                      <span className="material-symbols-outlined text-5xl text-gray-300">rate_review</span>
+                      <p className="text-gray-500 mt-2">No feedbacks yet</p>
+                      <p className="text-sm text-gray-400 mt-1">Students can give feedback by scanning the stall QR code</p>
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="text-center py-12">
+                <span className="material-symbols-outlined text-5xl text-red-300">error</span>
+                <p className="text-gray-500 mt-2">Failed to load feedbacks</p>
+              </div>
+            )}
+
+            <div className="flex justify-end mt-4 pt-4 border-t border-gray-200">
+              <button
+                onClick={() => {
+                  setShowFeedbackModal(false);
+                  setSelectedStall(null);
+                  setFeedbackData(null);
                 }}
                 className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
               >
