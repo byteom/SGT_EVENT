@@ -173,6 +173,67 @@ body {
   animation: successPulse 0.6s ease-in-out;
 }
 
+/* =========================
+     CURSOR STYLES
+========================= */
+
+/* Pointer cursor for all clickable elements */
+a,
+a:link,
+a:visited,
+a:hover,
+a:active,
+button,
+[role="button"],
+[type="button"],
+[type="submit"],
+[type="reset"],
+input[type="checkbox"],
+input[type="radio"],
+select,
+label[for],
+.cursor-pointer,
+[onclick],
+[tabindex]:not([tabindex="-1"]) {
+  cursor: pointer !important;
+}
+
+/* Ensure links always show pointer */
+a[href],
+[href] {
+  cursor: pointer !important;
+}
+
+/* Cards and clickable containers */
+.hover\:shadow-md,
+.hover\:-translate-y-1,
+.hover\:bg-blue-200,
+.hover\:bg-gray-100,
+.hover\:bg-gray-200,
+.hover\:bg-gray-300,
+.transition,
+[class*="hover:"],
+[class*="rounded-2xl"][class*="shadow"],
+[class*="rounded-xl"][class*="shadow"],
+[class*="card"],
+[class*="Card"],
+div[class*="hover:"] {
+  cursor: pointer !important;
+}
+
+/* Global - any element with hover effect should have pointer */
+*:hover {
+  cursor: inherit;
+}
+
+/* Force pointer on interactive elements */
+.bg-card-background.border,
+.bg-blue-100.rounded-3xl,
+section[class*="hover"],
+div[class*="hover"] {
+  cursor: pointer !important;
+}
+
 
 
 

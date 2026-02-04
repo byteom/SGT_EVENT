@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import {
@@ -36,6 +36,22 @@ export default function LoginPage() {
   const [resetToken, setResetToken] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+
+  // Slideshow states
+  const [currentSlide, setCurrentSlide] = useState(0);
+  const slides = [
+    "/images/new_new_1.jpeg",
+    "/images/new_new_2.jpeg"
+  ];
+
+  // Auto slideshow effect
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentSlide((prev) => (prev + 1) % slides.length);
+    }, 3000); // Change slide every 3 seconds
+
+    return () => clearInterval(interval);
+  }, [slides.length]);
 
   // Handle Step 1: Initial Login
   async function handleLogin() {
@@ -199,20 +215,71 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen
-      bg-gray-100#0c111d]#111827]
-      flex flex-col items-center justify-between transition-all duration-300">
+    <div className="min-h-screen flex">
+      
+      {/* LEFT SIDE - SLIDESHOW (65%) */}
+      <div className="hidden lg:block w-3/5 relative">
+        <div className="absolute inset-0">
+          {slides.map((slide, index) => (
+            <div
+              key={index}
+              className={`absolute inset-0 transition-opacity duration-1000 ease-in-out ${
+                index === currentSlide ? 'opacity-100' : 'opacity-0'
+              }`}
+            >
+              <Image
+                src={slide}
+                alt={`Slide ${index + 1}`}
+                fill
+                className="object-cover"
+                priority={index === 0}
+              />
+            </div>
+          ))}
+          
+          {/* Slide indicators */}
+          <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 flex space-x-2">
+            {slides.map((_, index) => (
+              <button
+                key={index}
+                onClick={() => setCurrentSlide(index)}
+                className={`w-3 h-3 rounded-full transition-all duration-300 cursor-pointer ${
+                  index === currentSlide 
+                    ? 'bg-white scale-110' 
+                    : 'bg-white/50 hover:bg-white/75'
+                }`}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
 
-      <main className="w-full max-w-md mx-auto px-6 py-10">
+      {/* RIGHT SIDE - LOGIN FORM (35%) */}
+      <div className="w-full lg:w-2/5 flex flex-col justify-center px-6 py-10 bg-white relative">
+        
+        {/* Background overlay for mobile */}
+        <div 
+          className="absolute inset-0 lg:hidden z-0"
+          style={{
+            backgroundImage: "url('/images/login_page_back.jpg')",
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+            backgroundRepeat: "no-repeat",
+          }}
+        >
+          <div className="absolute inset-0 bg-white/80 backdrop-blur-sm"></div>
+        </div>
+
+        <main className="relative z-10 w-full max-w-md mx-auto">
 
         {/* Logo */}
-        <div className="flex flex-col items-center mb-6">
-          <div className="w-full max-w-xs aspect-[4/3] mt-4">
+        <div className="flex flex-col items-center mb-4">
+          <div className="w-24 h-24 mt-2">
             <Image
               src="/images/SGT-Logo.png"
               alt="SGT Logo"
-              width={200}
-              height={200}
+              width={96}
+              height={96}
               className="object-contain w-full h-full"
               loading="eager"
             />
@@ -485,6 +552,7 @@ export default function LoginPage() {
         </p>
 
       </main>
+      </div>
     </div>
   );
 }

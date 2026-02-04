@@ -121,7 +121,10 @@ export default function StudentDashboardPage() {
             {/* 🎴 CARDS */}
             <section className="grid grid-cols-1 lg:grid-cols-2 gap-8">
 
-              <div className="bg-card-background border border-light-gray-border rounded-2xl p-8 shadow-soft hover:shadow-md hover:-translate-y-1 transition">
+              <div 
+                onClick={() => goTo("/student/stall-scan")}
+                className="bg-card-background border border-light-gray-border rounded-2xl p-8 shadow-soft hover:shadow-md hover:-translate-y-1 transition cursor-pointer"
+              >
                 <div className="flex items-center gap-5">
                   <div className="bg-blue-100 w-14 h-14 rounded-2xl flex items-center justify-center">
                     <span className="material-symbols-outlined text-primary !text-3xl">rate_review</span>
@@ -134,14 +137,17 @@ export default function StudentDashboardPage() {
                 </div>
 
                 <button
-                  onClick={() => goTo("/student/stall-scan")}
-                  className="mt-8 w-full font-semibold py-3 px-6 rounded-xl bg-blue-100 text-primary border border-blue-200 hover:bg-blue-200 transition"
+                  onClick={(e) => { e.stopPropagation(); goTo("/student/stall-scan"); }}
+                  className="mt-8 w-full font-semibold py-3 px-6 rounded-xl bg-blue-100 text-primary border border-blue-200 hover:bg-blue-200 transition cursor-pointer"
                 >
                   Give Feedback
                 </button>
               </div>
 
-              <div className="bg-card-background border border-light-gray-border rounded-2xl p-8 shadow-soft hover:shadow-md hover:-translate-y-1 transition">
+              <div 
+                onClick={() => goTo("/student/ranking")}
+                className="bg-card-background border border-light-gray-border rounded-2xl p-8 shadow-soft hover:shadow-md hover:-translate-y-1 transition cursor-pointer"
+              >
                 <div className="flex items-center gap-5">
                   <div className="bg-blue-100 w-14 h-14 rounded-2xl flex items-center justify-center">
                     <span className="material-symbols-outlined text-primary !text-3xl">emoji_events</span>
@@ -154,8 +160,8 @@ export default function StudentDashboardPage() {
                 </div>
 
                 <button
-                  onClick={() => goTo("/student/ranking")}
-                  className="mt-8 w-full font-semibold py-3 px-6 rounded-xl bg-blue-100 text-primary border border-blue-200 hover:bg-blue-200 transition"
+                  onClick={(e) => { e.stopPropagation(); goTo("/student/ranking"); }}
+                  className="mt-8 w-full font-semibold py-3 px-6 rounded-xl bg-blue-100 text-primary border border-blue-200 hover:bg-blue-200 transition cursor-pointer"
                 >
                   Start Ranking
                 </button>
